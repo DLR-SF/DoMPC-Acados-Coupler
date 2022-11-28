@@ -1,0 +1,7 @@
+pytest
+pytest-cov
+snakeviz
+tox
+pipreqs
+yapf
+pylint
