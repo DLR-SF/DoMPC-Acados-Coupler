@@ -1,6 +1,6 @@
 *.py[cod]
 __pycache__
-
+c_generated_code
 # Supplementary files
 git_init_and_connect_to_remote.sh
 
