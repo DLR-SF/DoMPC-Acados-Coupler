@@ -12,7 +12,7 @@ from dompcacadoscoupler.acados_simulator_for_dompc import set_acados_simulator
 from dompcacadoscoupler.model_converter import convert_to_acados_model
 
 
-def test_conversion() -> None:
+def test_simulator_conversion() -> None:
     pt2_variables, pt2_model = create_pt2_model()
     pt2_model.setup()
     pt2_simulator = Simulator(pt2_model)
@@ -59,4 +59,4 @@ def test_conversion() -> None:
 
 
 if __name__ == '__main__':
-    test_conversion()
+    test_simulator_conversion()
