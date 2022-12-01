@@ -1,15 +1,9 @@
-from typing import Any
-
-import casadi as cd
 import matplotlib.pyplot as plt
 import numpy as np
-from acados_template import AcadosModel, AcadosSim, AcadosSimSolver
-from do_mpc.controller import MPC
 from dynamodel.examples.pt1_model_coupling import (Simulator, create_pt2_model,
                                                    set_x_init)
 
 from dompcacadoscoupler.acados_simulator_for_dompc import set_acados_simulator
-from dompcacadoscoupler.model_converter import convert_to_acados_model
 
 
 def test_simulator_conversion() -> None:
@@ -25,7 +19,6 @@ def test_simulator_conversion() -> None:
     nx = pt2_model.x.shape[0]
     nu = pt2_model.u.shape[0]
     N = 10
-    # set simulation time
     result_array = np.zeros((N + 1, nx))
     x0 = np.array([0, 0])
     u0 = np.array([[1]]).transpose()
@@ -33,7 +26,6 @@ def test_simulator_conversion() -> None:
     result_array[0, :] = x0
 
     for i in range(N):
-        # set initial state
         result = pt2_simulator.make_step(u0)
 
         result_array[i + 1, :] = np.asarray(result).squeeze()
