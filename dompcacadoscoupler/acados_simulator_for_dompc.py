@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict, Union
 
 import casadi as cd
 import matplotlib.pyplot as plt
@@ -20,17 +20,16 @@ class AcadosDompcSimulator:
     def __init__(self, simulator: Simulator) -> None:
         self.acados_integrator = convert_to_acados_simulator(simulator)
 
-    def __call__(self, x0, z0, p) -> Any:
+    def __call__(self, x0, z0, p) -> Dict[str, Union[np.ndarray, float]]:
         x0 = cd.vertcat(x0)
         u0 = p['_u']
-        result = simulate(self.acados_integrator, x0, u0)
-        result_dict = {}
-        result_dict['xf'] = cd.DM(result)
-        result_dict['zf'] = cd.DM()
+        result_dict = simulate(self.acados_integrator, x0, u0)
+
         return result_dict
 
 
-def simulate(acados_integrator, x0, u0):
+def simulate(acados_integrator: AcadosSimSolver, x0: Any,
+             u0: Any) -> Dict[str, Union[np.ndarray, float]]:
     acados_integrator.set("u", np.asarray(u0))
     acados_integrator.set("x", np.asarray(x0))
     # initialize IRK
@@ -44,8 +43,12 @@ def simulate(acados_integrator, x0, u0):
     if status != 0:
         raise Exception(f'acados returned status {status}.')
     # get solution
-    result = acados_integrator.get("x")
-    return result
+    result_x = acados_integrator.get("x")
+    result_z = acados_integrator.get("z")
+    result_dict = {}
+    result_dict['xf'] = cd.DM(result_x)
+    result_dict['zf'] = cd.DM(result_z)
+    return result_dict
 
 
 def convert_to_acados_simulator(simulator: Simulator) -> AcadosSimSolver:
