@@ -18,6 +18,11 @@ colorama.init()
 
 
 def set_acados_mpc(mpc: MPC):
+    """Overwrite the ipopt solver with the acados solver.
+
+    Args:
+        mpc (MPC): Do mpc object which was already setup.
+    """
     acados_solver = AcadosDompcOcpSolver(mpc)
     # S is the ipopt solver in the dompc object.
     # This has to be overwritten with the acados solver.
@@ -26,12 +31,16 @@ def set_acados_mpc(mpc: MPC):
 
 
 class AcadosDompcOcpSolver:
+    """This class creates an acados mpc solver from a dompc object.
+        It can be used to overwrite the internal dompc solver member self.S.
+    """
 
     def __init__(self, mpc: MPC) -> None:
         self.acados_solver = convert_to_acados_mpc(mpc)
+        # Do not store the lagrange multiplier anymore.
+        # They should not be important for dompc.
+        # They could be extracted from acados. However, it was not obvious what corresponds to lam_g and lam_x.
         mpc.store_lagr_multiplier = False
-        mpc.store_solver_stats = []
-        self.solver_stats = None
         self.n_total_collocation_points = calculate_collocation_points(mpc)
 
     def __call__(self,
@@ -74,7 +83,18 @@ class AcadosDompcOcpSolver:
         return result_dict
 
     def stats(self):
-        return self.solver_stats
+        return get_all_statistics(self.acados_solver)
+
+
+def get_all_statistics(acados_solver: AcadosOcpSolver) -> Dict[str, Any]:
+    solver_stats = {}
+    for key in [
+            'statistics', 'time_tot', 'time_lin', 'time_sim', 'time_sim_ad',
+            'time_sim_la', 'time_qp', 'time_qp_solver_call', 'time_reg',
+            'sqp_iter', 'residuals', 'qp_iter', 'alpha'
+    ]:
+        solver_stats[key] = acados_solver.get_stats(key)
+    return solver_stats
 
 
 def solve(
