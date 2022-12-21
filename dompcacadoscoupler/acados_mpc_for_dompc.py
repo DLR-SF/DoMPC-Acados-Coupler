@@ -37,6 +37,7 @@ class AcadosDompcOcpSolver:
 
     def __init__(self, mpc: MPC) -> None:
         self.acados_solver = convert_to_acados_mpc(mpc)
+        init_variables(mpc, self.acados_solver)
         # Do not store the lagrange multiplier anymore.
         # They should not be important for dompc.
         # They could be extracted from acados. However, it was not obvious what corresponds to lam_g and lam_x.
@@ -127,11 +128,23 @@ def set_p(
     for stage in range(0, acados_solver.acados_ocp.dims.N):
         # acados_solver.set(j, "yref", yref)
         if time_varying_parameters_exist:
-            current_tvp = tvp[:, stage]
+            current_tvp = tvp[stage, :]
         else:
             current_tvp = np.array([])
-        p_total = np.stack((p, current_tvp))
+        p_total = np.hstack((p, current_tvp))
         acados_solver.set(stage, 'p', p_total)
+
+
+def init_variables(mpc: MPC, acados_solver: AcadosOcpSolver) -> None:
+    x_init = np.array(mpc.x0.cat)
+    z_init = np.array(mpc.z0.cat)
+    u_init = np.array(mpc.u0.cat)
+    for stage in range(0, acados_solver.acados_ocp.dims.N + 1):
+        acados_solver.set(stage, 'x', x_init)
+    for stage in range(0, acados_solver.acados_ocp.dims.N):
+        acados_solver.set(stage, 'z', z_init)
+    for stage in range(0, acados_solver.acados_ocp.dims.N):
+        acados_solver.set(stage, 'u', u_init)
 
 
 def convert_to_acados_mpc(mpc: MPC) -> AcadosOcpSolver:
@@ -150,7 +163,10 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.solver_options = determine_solver_options(mpc)
     ocp.cost = determine_objective_function(mpc, acados_model)
     ocp.dims.N = mpc.n_horizon
-    # TODO: Set initial parameter values.
+    # The correct parameter values should be set later via the set function.
+    parameter_shape = (np.array(mpc.model.p.shape) +
+                       np.array(mpc.model.tvp.shape))
+    ocp.parameter_values = np.ones(parameter_shape)
     return ocp
 
 
@@ -180,8 +196,6 @@ def determine_objective_function(mpc: MPC,
     assert acados_model
     cost = determine_external_costs(mpc, acados_model)
     # TODO: Introduce soft constraints.
-    # TODO: Set up possibility for non-linear non-quadratic terms.
-    # Use external cost function type.
     return cost
 
 
@@ -270,12 +284,12 @@ def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
     constraints = AcadosOcpConstraints()
     for variable_type in ['_x', '_z', '_u']:
         for index, variable_name in enumerate(mpc.model[variable_type].keys()):
-            for bound_type in ['lower', 'upper']:
-                bound = mpc.bounds[bound_type, variable_type, variable_name]
-                if cd.DM.is_empty(bound) or (bound == cd.DM.inf(1, 1) or
-                                             bound == -1 * cd.DM.inf(1, 1)):
-                    continue
-                set_bound(constraints, variable_type, bound_type, bound, index)
+            lower_bound = mpc.bounds['lower', variable_type, variable_name]
+            upper_bound = mpc.bounds['upper', variable_type, variable_name]
+            if bound_not_set(lower_bound) and bound_not_set(upper_bound):
+                continue
+            set_lower_bound(constraints, variable_type, lower_bound, index)
+            set_upper_bound(constraints, variable_type, upper_bound, index)
     if len(mpc.slack_vars_list) > 1:
         # TODO: Implement soft constraints.
         warn(colored(f'Soft constraints are not supported yet.', 'yellow'),
@@ -283,42 +297,63 @@ def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
     return constraints
 
 
-def set_bound(constraints: AcadosOcpConstraints, variable_type: str,
-              bound_type: str, bound: Any, index: int):
-    if bound_type == 'lower':
-        if variable_type == '_x':
-            constraints.lbx = np.append(constraints.lbx, bound)
-            constraints.idxbx = np.append(constraints.idxbx, index)
-            constraints.lbx_e = np.append(constraints.lbx_e, bound)
-            constraints.idxbx_e = np.append(constraints.idxbx_e, index)
-        elif variable_type == '_u':
-            constraints.lbu = np.append(constraints.lbu, bound)
-            constraints.idxbu = np.append(constraints.idxbu, index)
-        elif variable_type == '_z':
-            # You may find some possibilities here: https://discourse.acados.org/t/python-interface-nonlinear-least-squares-and-constraints-on-algebraic-variables/44/7
-            # Probably use lh for that.
-            # NOTE: There is also a lsh bound for soft constraints.
-            raise NotImplementedError()
-        else:
-            raise NotImplementedError()
-    elif bound_type == 'upper':
-        if variable_type == '_x':
-            constraints.ubx = np.append(constraints.ubx, bound)
-            constraints.ubx_e = np.append(constraints.ubx_e, bound)
-            if not np.isin(index, constraints.idxbx):
-                constraints.idxbx = np.append(constraints.idxbx, index)
-                constraints.idxbx_e = np.append(constraints.idxbx_e, index)
-        elif variable_type == '_u':
-            constraints.ubu = np.append(constraints.ubu, bound)
-            if not np.isin(index, constraints.idxbu):
-                constraints.idxbu = np.append(constraints.idxbu, index)
-        elif variable_type == '_z':
-            # You may find some possibilities here: https://discourse.acados.org/t/python-interface-nonlinear-least-squares-and-constraints-on-algebraic-variables/44/7
-            raise NotImplementedError()
-        else:
-            raise NotImplementedError()
+def bound_not_set(bound: cd.DM) -> bool:
+    is_not_set = cd.DM.is_empty(bound) or (bound == cd.DM.inf(1, 1) or
+                                           bound == -1 * cd.DM.inf(1, 1))
+    return is_not_set
+
+
+def set_lower_bound(constraints: AcadosOcpConstraints, variable_type: str,
+                    lower_bound: Any, index: int):
+    lower_bound = modify_when_infinity(lower_bound)
+    if variable_type == '_x':
+        constraints.lbx = np.append(constraints.lbx, lower_bound)
+        constraints.idxbx = np.append(constraints.idxbx, index)
+        constraints.lbx_e = np.append(constraints.lbx_e, lower_bound)
+        constraints.idxbx_e = np.append(constraints.idxbx_e, index)
+    elif variable_type == '_u':
+        constraints.lbu = np.append(constraints.lbu, lower_bound)
+        constraints.idxbu = np.append(constraints.idxbu, index)
+    elif variable_type == '_z':
+        # You may find some possibilities here: https://discourse.acados.org/t/python-interface-nonlinear-least-squares-and-constraints-on-algebraic-variables/44/7
+        # Probably use lh for that.
+        # NOTE: There is also a lsh bound for soft constraints.
+        raise NotImplementedError()
     else:
-        raise ValueError('Only lower and upper bound are valid options.')
+        raise NotImplementedError()
+
+
+def set_upper_bound(constraints: AcadosOcpConstraints, variable_type: str,
+                    upper_bound: Any, index: int):
+    upper_bound = modify_when_infinity(upper_bound)
+    if variable_type == '_x':
+        constraints.ubx = np.append(constraints.ubx, upper_bound)
+        constraints.ubx_e = np.append(constraints.ubx_e, upper_bound)
+        if not np.isin(index, constraints.idxbx):
+            constraints.idxbx = np.append(constraints.idxbx, index)
+            constraints.idxbx_e = np.append(constraints.idxbx_e, index)
+    elif variable_type == '_u':
+        constraints.ubu = np.append(constraints.ubu, upper_bound)
+        if not np.isin(index, constraints.idxbu):
+            constraints.idxbu = np.append(constraints.idxbu, index)
+    elif variable_type == '_z':
+        # You may find some possibilities here: https://discourse.acados.org/t/python-interface-nonlinear-least-squares-and-constraints-on-algebraic-variables/44/7
+        raise NotImplementedError()
+    else:
+        raise NotImplementedError()
+
+
+def modify_when_infinity(value: cd.DM) -> cd.DM:
+    # Unfortunateley acados can apparently not handle infinity. Thus, the umber has to be converted to a really large number.
+    # See: https://discourse.acados.org/t/one-sided-bounds-in-python-interface/69
+    inf = 1e15
+    if value == cd.DM.inf(1, 1):
+        value = cd.DM(inf)
+    elif value == -1 * cd.DM.inf(1, 1):
+        value = cd.DM(-inf)
+    else:
+        pass
+    return value
 
 
 def extract_result(acados_solver: AcadosOcpSolver,
@@ -337,7 +372,6 @@ def extract_result(acados_solver: AcadosOcpSolver,
         # result_z = acados_solver.get('z')
         result_z = np.array([0])
         if stage_index != n_horizon:
-            # TODO: Check order for more than one u.
             stage_u = acados_solver.get(stage, 'u')
             result_u[stage_index, :] = stage_u
     result_optimization_variables = np.hstack(
@@ -345,8 +379,8 @@ def extract_result(acados_solver: AcadosOcpSolver,
     result_dict = {}
     result_dict['x'] = cd.DM(result_optimization_variables)
     result_dict['z'] = cd.DM(result_z)
-    # TODO: Add g num.
-    result_dict['g'] = cd.DM(result_z)
+    # They are probably not needed in the dompc object. They could be retrieved from acados, however this seems not to be obvious. Thus, they are set to an empty array.
+    result_dict['g'] = cd.DM([])
     result_dict['lam_x'] = cd.DM([])
     result_dict['lam_g'] = cd.DM([])
     return result_dict
