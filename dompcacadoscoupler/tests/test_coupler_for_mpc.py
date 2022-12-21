@@ -1,17 +1,17 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from do_mpc.controller import MPC
-from dynamodel.dompc import do_mpc_helper as doh
-from dynamodel.examples.pt1_model_coupling import (Simulator, create_pt2_model,
-                                                   set_x_init)
+from dynamodel.examples.pt1_model_coupling import create_pt2_model
 
 from dompcacadoscoupler.acados_mpc_for_dompc import set_acados_mpc
-from dompcacadoscoupler.acados_simulator_for_dompc import set_acados_simulator
 
 
 def run_mpc_conversion(with_acados: bool = True) -> None:
     # TODO: Test with time varying parameter.
     pt2_variables, pt2_model = create_pt2_model()
+    # This is just done to have more than one input.
+    pt2_model.set_variable('_u', 'temp_u')
+    # z = pt2_model.set_variable('_z', 'z')
+    # pt2_model.set_alg('alg_0', z - pt2_model.x['pt1_1.x.state'])
     pt2_model.setup()
     mpc = MPC(pt2_model)
     setup_mpc = {
