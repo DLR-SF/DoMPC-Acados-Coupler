@@ -14,9 +14,11 @@ def export_simple_inverse_model() -> AcadosModel:
     # algebraic variables
     z = cd.SX.sym('z')
     # dynamics
-    f_expl = 1 + 1 / z + 1 / p + 1 / u + 1 / x
+    f_expl = 1 + z + 1 / p + 1 / u + 1 / x
     f_impl = x_dot - f_expl
     alg = 1 / z - 1
+    # This would work:
+    # alg = z - 1
     f_impl = cd.vertcat(f_impl, alg)
 
     model = AcadosModel()
@@ -70,6 +72,7 @@ def test_acados_initialization() -> None:
     p_init = np.array([2])
     ocp.parameter_values = p_init
     ocp_solver = AcadosOcpSolver(ocp, json_file='acados_ocp.json')
+    # Initial guess.
     x_init = 1
     z_init = 1
     u_init = 1
