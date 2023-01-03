@@ -17,8 +17,6 @@ def export_simple_inverse_model() -> AcadosModel:
     f_expl = 1 + z + 1 / p + 1 / u + 1 / x
     f_impl = x_dot - f_expl
     alg = 1 / z - 1
-    # This would work:
-    # alg = z - 1
     f_impl = cd.vertcat(f_impl, alg)
 
     model = AcadosModel()
@@ -87,6 +85,11 @@ def test_acados_initialization() -> None:
         ocp_solver.set(stage, 'p', p_init)
     status = ocp_solver.solve()
     assert status == 0, f'acados returned status {status}.'
+    x_result = []
+    for stage in range(0, ocp_solver.acados_ocp.dims.N + 1):
+        x_stage = ocp_solver.get(stage, 'x')
+        x_result.append(x_stage)
+    print(f'{x_result=}')
 
 
 if __name__ == '__main__':
