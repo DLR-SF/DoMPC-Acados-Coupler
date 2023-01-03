@@ -2,7 +2,8 @@ import numpy as np
 from do_mpc.controller import MPC
 from dynamodel.examples.pt1_model_coupling import create_pt2_model
 
-from dompcacadoscoupler.acados_mpc_for_dompc import set_acados_mpc
+from dompcacadoscoupler.acados_mpc_for_dompc import (determine_solver_options,
+                                                     set_acados_mpc)
 
 
 def run_mpc_conversion(with_acados: bool = True) -> None:
@@ -66,6 +67,46 @@ def run_mpc_conversion(with_acados: bool = True) -> None:
     # if plot_results:
     #     plt.plot(result_array)
     #     plt.show()
+
+
+def test_determine_solver_options():
+    pt2_variables, pt2_model = create_pt2_model()
+    pt2_model.setup()
+    mpc = MPC(pt2_model)
+    setup_mpc = {
+        'n_horizon': 2,
+        't_step': 1,
+        'n_robust': 0,
+        'store_full_solution': True,
+    }
+    mpc.set_param(**setup_mpc)
+
+    solver_options = determine_solver_options(
+        mpc, {
+            'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+            'nlp_solver_type': 'SQP',
+            'hessian_approx': 'GAUSS_NEWTON',
+            'integrator_type': 'IRK',
+            'sim_method_num_stages': 5,
+            'sim_method_num_steps': 4
+        })
+    assert solver_options.tf == 1
+    assert solver_options.qp_solver == 'PARTIAL_CONDENSING_HPIPM'
+    assert solver_options.nlp_solver_type == 'SQP'
+    assert solver_options.hessian_approx == 'GAUSS_NEWTON'
+    assert solver_options.integrator_type == 'IRK'
+    assert solver_options.sim_method_num_stages == 5
+    assert solver_options.sim_method_num_steps == 4
+
+    # Test default values
+    solver_options = determine_solver_options(mpc, {})
+    assert solver_options.tf == 1
+    assert solver_options.qp_solver == 'FULL_CONDENSING_QPOASES'
+    assert solver_options.nlp_solver_type == 'SQP'
+    assert solver_options.hessian_approx == 'EXACT'
+    assert solver_options.integrator_type == 'IRK'
+    assert solver_options.sim_method_num_stages == 4
+    assert solver_options.sim_method_num_steps == 3
 
 
 if __name__ == '__main__':
