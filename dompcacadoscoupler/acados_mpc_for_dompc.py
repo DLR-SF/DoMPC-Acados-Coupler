@@ -108,6 +108,8 @@ def solve(
     # solve
     status = acados_solver.solve()
     if status != 0:
+        # NOTE: This link may give a hint for convergence problems.
+        # TODO: What does alpha mean and why is it zero in the first iteration?
         raise Exception(f'acados returned status {status}.')
 
 
@@ -194,7 +196,17 @@ def determine_objective_function(mpc: MPC,
 
     # cost = determine_quadratic_costs(mpc)
     assert acados_model
-    cost = determine_external_costs(mpc, acados_model)
+    if hasattr(mpc, 'acados_options'):
+        cost_type = mpc.acados_options['cost_type']
+    else:
+        cost_type = 'EXTERNAL'
+
+    if cost_type == 'EXTERNAL':
+        cost = determine_external_costs(mpc, acados_model)
+    elif cost_type == 'LINEAR_LS':
+        cost = determine_linear_costs(mpc)
+    else:
+        raise ValueError(f'Cost type {cost_type} is not supported.')
     # TODO: Introduce soft constraints.
     return cost
 
@@ -209,7 +221,7 @@ def determine_external_costs(mpc: MPC,
     return cost
 
 
-def determine_quadratic_costs(mpc: MPC) -> AcadosOcpCost:
+def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     """Determines the cost with the linear standard formulization of the costs
         in acados. Be aware that the cost function in acados is defined 
         quadratic not for each term but for the addition of all terms. 
@@ -225,31 +237,47 @@ def determine_quadratic_costs(mpc: MPC) -> AcadosOcpCost:
     Returns:
         AcadosOcpCost: Acados cost term.
     """
-    raise NotImplementedError()
-
     cost = AcadosOcpCost()
-    if not cd.hessian(mpc.lterm, mpc.model.p)[0].is_empty():
+    cost.cost_type = 'LINEAR_LS'
+    cost.cost_type_e = 'LINEAR_LS'
+    p_term = cd.hessian(mpc.lterm, mpc.model.p)[0]
+    if not (p_term.is_empty() or bool(p_term == 0)):
         raise NotImplementedError(
             'Parameter variables are currently not allowed in the cost function.'
         )
     # It is divided by two because due to differentiation of the quadratic costs a factor of 2 is added.
-    cost.Vx = get_hessian_as_array(mpc.lterm, mpc.model.x) / 2
-    cost.Vz = get_hessian_as_array(mpc.lterm, mpc.model.z) / 2
-    cost.Vu = np.asarray(cd.diag(mpc.rterm_factor.cat))
+    n_x = mpc.model.n_x
+    n_z = mpc.model.n_z
+    n_u = mpc.model.n_u
+    n_w = n_x + n_z + n_u
+    n_w_e = n_x
+    x_zeros = np.zeros((n_x, n_x))
+    z_zeros = np.zeros((n_z, n_z))
+    u_zeros = np.zeros((n_u, n_u))
+    Vx = get_hessian_as_array(mpc.lterm, mpc.model.x) / 2
+    Vz = get_hessian_as_array(mpc.lterm, mpc.model.z) / 2
+    Vu = np.asarray(cd.diag(mpc.rterm_factor.cat))
+    cost.Vx = np.vstack((Vx, np.zeros((n_z + n_u, n_x))))
+    cost.Vz = np.vstack((np.zeros((n_x, n_z)), Vz, np.zeros((n_u, n_z))))
+    cost.Vu = np.vstack((np.zeros((n_x + n_z, n_u)), Vu))
     # Setting all variables to 0 to get the reference.
-    y_ref = mpc.lterm_fun(0, 0, 0, 0, 0)
-    cost.yref = np.asarray(y_ref)
+    # This only works if all terms are quadratic.
+    lagrange_term_jacobian = mpc.lterm_fun.jacobian()
+    jacobian_values = lagrange_term_jacobian(0, 0, 0, 0, 0, 0)
+    y_ref = -jacobian_values / 2
+    cost.yref = np.asarray(y_ref[:n_w]).T
     # Meyer term.
     cost.Vx_e = get_hessian_as_array(mpc.mterm, mpc.model.x) / 2
-    terminal_y_ref = mpc.mterm_fun(0, 0, 0)
-    cost.yref_e = np.asarray(terminal_y_ref)
-    n_y = np.shape(cost.Vx)[0] + np.shape(cost.Vu)[0]
+    meyer_term_jacobian = mpc.mterm_fun.jacobian()
+    meyer_values = meyer_term_jacobian(0, 0, 0, 0)
+    terminal_y_ref = -meyer_values / 2
+    cost.yref_e = np.asarray(terminal_y_ref[:n_w_e]).T
     #TODO: This is not correct yet.
     # NOTE: In the bicicyle example they use:
     # unscale = N / Tf
     # What is that for?
-    cost.W = np.ones((n_y, n_y))
-    cost.W_e = np.ones((n_y, n_y))
+    cost.W = np.ones((n_w, n_w))
+    cost.W_e = np.ones((n_w_e, n_w_e))
     return cost
 
 
@@ -263,16 +291,19 @@ def get_hessian_as_array(term: Union[cd.SX, cd.MX, cd.DM],
 def determine_solver_options(mpc: MPC) -> AcadosOcpOptions:
     solver_options = AcadosOcpOptions()
     # set QP solver and integration
+    if hasattr(mpc, 'acados_options'):
+        options = mpc.acados_options
+    else:
+        options = {}
     solver_options.tf = mpc.t_step
-    # solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
-    solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-    solver_options.nlp_solver_type = "SQP"
-    # TODO: Only use exact when cost function of type external.
-    solver_options.hessian_approx = 'EXACT'  # 'GAUSS_NEWTON', 'EXACT'
-    solver_options.integrator_type = "IRK"
-    solver_options.sim_method_num_stages = 4
-    solver_options.sim_method_num_steps = 3
-
+    solver_options.qp_solver = options.get('qp_solver',
+                                           'FULL_CONDENSING_QPOASES')
+    solver_options.nlp_solver_type = options.get('nlp_solver_type', "SQP")
+    solver_options.hessian_approx = options.get('hessian_approx', 'EXACT')
+    solver_options.integrator_type = options.get('integrator_type', "IRK")
+    solver_options.sim_method_num_stages = options.get('sim_method_num_stages',
+                                                       4)
+    solver_options.sim_method_num_steps = options.get('sim_method_num_steps', 3)
     # solver_options.qp_solver_tol_stat = 1e-2
     # solver_options.qp_solver_tol_eq = 1e-2
     # solver_options.qp_solver_tol_ineq = 1e-2
