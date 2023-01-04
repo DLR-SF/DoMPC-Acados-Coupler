@@ -73,6 +73,9 @@ def test_compare_ipopt_and_acados_2() -> None:
     u_ipopt = mpc.make_step(x0)
 
     mpc = setup_simple_mpc(model)
+    mpc.acados_options = {
+        'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+    }
     set_acados_mpc(mpc)
     x0 = np.array([[1, 0]])
     u_acados = mpc.make_step(x0)
