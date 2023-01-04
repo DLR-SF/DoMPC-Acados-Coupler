@@ -70,13 +70,12 @@ class AcadosDompcOcpSolver:
         Returns:
             Dict[str, Union[np.ndarray, float]]: A dictionary containing the keys x, g, lam_g and lam_x.
         """
-        # x0 = cd.vertcat(x0)
-        # z0 = cd.vertcat(z0)
-        # u0 = p['_u']
+        optimization_variable_guess = np.asarray(x0.cat)
         p0 = p['_p']
         tvp0 = p['_tvp']
-
-        solve(self.acados_solver, p0, tvp0)
+        x_at_step_0 = p['_x0']
+        solve(self.acados_solver, optimization_variable_guess, x_at_step_0, p0,
+              tvp0, self.n_total_collocation_points)
         # get solution
         result_dict = extract_result(self.acados_solver,
                                      self.n_total_collocation_points)
@@ -98,12 +97,13 @@ def get_all_statistics(acados_solver: AcadosOcpSolver) -> Dict[str, Any]:
     return solver_stats
 
 
-def solve(
-    acados_solver: AcadosOcpSolver,
-    p: cd.DM,
-    tvp: cd.DM,
-) -> None:
+def solve(acados_solver: AcadosOcpSolver, optimization_variable_guess: cd.DM,
+          x_at_step_0: cd.DM, p: cd.DM, tvp: cd.DM,
+          n_total_collocation_points: int) -> None:
     set_p(acados_solver, p, tvp)
+    set_x0(acados_solver, x_at_step_0)
+    init_optimization_variables(acados_solver, optimization_variable_guess,
+                                n_total_collocation_points)
 
     # solve
     status = acados_solver.solve()
@@ -111,6 +111,37 @@ def solve(
         # NOTE: This link may give a hint for convergence problems.
         # TODO: What does alpha mean and why is it zero in the first iteration?
         raise Exception(f'acados returned status {status}.')
+
+
+def init_optimization_variables(acados_solver: AcadosOcpSolver, x0: cd.DM,
+                                n_total_collocation_points: int) -> None:
+    n_horizon = acados_solver.acados_ocp.dims.N
+    n_x = acados_solver.acados_ocp.dims.nx
+    n_z = acados_solver.acados_ocp.dims.nz
+    n_u = acados_solver.acados_ocp.dims.nu
+    shape_x = (n_horizon + 1, n_total_collocation_points + 1, n_x)
+    shape_z = (n_horizon, n_total_collocation_points, n_z)
+    shape_u = (n_horizon, n_u)
+    num_x = np.prod(shape_x)
+    num_z = np.prod(shape_z)
+    num_u = np.prod(shape_u)
+    x_variables = np.reshape(x0[:num_x], shape_x)
+    z_variables = np.reshape(x0[num_x:num_x + num_z], shape_z)
+    u_variables = np.reshape(x0[num_x + num_z:num_x + num_z + num_u], shape_u)
+    for stage_index in range(n_horizon + 1):
+        acados_solver.set(stage_index, 'x', x_variables[stage_index, -1, :])
+        if stage_index != n_horizon:
+            acados_solver.set(stage_index, 'z', z_variables[stage_index, -1, :])
+            acados_solver.set(stage_index, 'u', u_variables[stage_index, :])
+
+
+def set_x0(
+    acados_solver: AcadosOcpSolver,
+    x0: cd.DM,
+) -> None:
+    x0 = np.asarray(x0)
+    acados_solver.set(0, "lbx", x0)
+    acados_solver.set(0, "ubx", x0)
 
 
 def set_p(
@@ -165,6 +196,7 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.solver_options = determine_solver_options(mpc)
     ocp.cost = determine_objective_function(mpc, acados_model)
     ocp.dims.N = mpc.n_horizon
+    sanity_check_solver_options(ocp.solver_options, ocp.cost)
     # The correct parameter values should be set later via the set function.
     parameter_shape = (np.array(mpc.model.p.shape) +
                        np.array(mpc.model.tvp.shape))
@@ -197,7 +229,7 @@ def determine_objective_function(mpc: MPC,
     # cost = determine_quadratic_costs(mpc)
     assert acados_model
     if hasattr(mpc, 'acados_options'):
-        cost_type = mpc.acados_options['cost_type']
+        cost_type = mpc.acados_options.get('cost_type', 'EXTERNAL')
     else:
         cost_type = 'EXTERNAL'
 
@@ -311,8 +343,19 @@ def determine_solver_options(mpc: MPC) -> AcadosOcpOptions:
     return solver_options
 
 
+def sanity_check_solver_options(options: AcadosOcpOptions,
+                                cost: AcadosOcpCost) -> None:
+    external_cost_function = cost.cost_type == 'EXTERNAL' or cost.cost_type_0 == 'EXTERNAL'
+    if external_cost_function and options.hessian_approx != 'EXACT':
+        raise ValueError(
+            'If you want use the external cost function you must use the exact hessian approximation.'
+        )
+
+
 def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
     constraints = AcadosOcpConstraints()
+    x_init = np.array(mpc.x0.cat)
+    constraints.x0 = x_init
     for variable_type in ['_x', '_z', '_u']:
         for index, variable_name in enumerate(mpc.model[variable_type].keys()):
             lower_bound = mpc.bounds['lower', variable_type, variable_name]
@@ -391,25 +434,31 @@ def extract_result(acados_solver: AcadosOcpSolver,
                    n_total_collocation_points: int) -> Dict[str, Any]:
     n_horizon = acados_solver.acados_ocp.dims.N
     n_x = acados_solver.acados_ocp.dims.nx
+    n_z = acados_solver.acados_ocp.dims.nz
     n_u = acados_solver.acados_ocp.dims.nu
     # The order must be kept otherwise the ravel function yields not the right order of the elements.
     result_x = np.empty((n_horizon + 1, n_total_collocation_points + 1, n_x))
+    # z has one collocation point less due to derivation of the collocation
+    # optimization problem.
+    # Also there are no z variables for the last stage.
+    result_z = np.empty((n_horizon, n_total_collocation_points, n_z))
     result_u = np.empty((n_horizon, n_u))
-    for stage_index, stage in enumerate(range(n_horizon + 1)):
-        stage_x = acados_solver.get(stage, 'x')
+    for stage_index in range(n_horizon + 1):
+        stage_x = acados_solver.get(stage_index, 'x')
         for index_x, x in enumerate(stage_x):
             result_x[stage_index, :, index_x] = x
-        # TODO: Add z.
-        # result_z = acados_solver.get('z')
-        result_z = np.array([0])
         if stage_index != n_horizon:
-            stage_u = acados_solver.get(stage, 'u')
+            stage_z = acados_solver.get(stage_index, 'z')
+            for index_z, z in enumerate(stage_z):
+                result_z[stage_index, :, index_z] = z
+            stage_u = acados_solver.get(stage_index, 'u')
             result_u[stage_index, :] = stage_u
+    unraveled_z_result = result_z.ravel()
     result_optimization_variables = np.hstack(
-        (result_x.ravel(), result_u.ravel()))
+        (result_x.ravel(), unraveled_z_result, result_u.ravel()))
     result_dict = {}
     result_dict['x'] = cd.DM(result_optimization_variables)
-    result_dict['z'] = cd.DM(result_z)
+    result_dict['z'] = cd.DM(unraveled_z_result)
     # They are probably not needed in the dompc object. They could be retrieved from acados, however this seems not to be obvious. Thus, they are set to an empty array.
     result_dict['g'] = cd.DM([])
     result_dict['lam_x'] = cd.DM([])
