@@ -273,7 +273,7 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     cost.cost_type = 'LINEAR_LS'
     cost.cost_type_e = 'LINEAR_LS'
     p_term = cd.hessian(mpc.lterm, mpc.model.p)[0]
-    if not (p_term.is_empty() or bool(p_term == 0)):
+    if not (p_term.is_empty() or np.all(np.asarray(cd.DM(p_term)) == 0)):
         raise NotImplementedError(
             'Parameter variables are currently not allowed in the cost function.'
         )
