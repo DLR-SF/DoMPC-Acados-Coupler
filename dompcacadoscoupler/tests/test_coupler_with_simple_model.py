@@ -24,10 +24,10 @@ def setup_simple_model_2() -> Model:
     model_type = 'continuous'
     model = Model(model_type)
     x = model.set_variable('_x', 'x')
-    xdot = model.set_variable('_x', 'xdot')
+    x_1 = model.set_variable('_x', 'x_1')
     u = model.set_variable('_u', 'u')
-    model.set_rhs('x', xdot)
-    model.set_rhs('xdot', (x - u)**2)
+    model.set_rhs('x', x_1)
+    model.set_rhs('x_1', (x - u)**2)
     model.setup()
     return model
 
@@ -75,6 +75,10 @@ def test_compare_ipopt_and_acados_2() -> None:
     mpc = setup_simple_mpc(model)
     mpc.acados_options = {
         'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+        'nlp_solver_type': 'SQP',
+        'hessian_approx': 'EXACT',
+        'integrator_type': 'IRK',
+        'cost_type': 'EXTERNAL',
     }
     set_acados_mpc(mpc)
     x0 = np.array([[1, 0]])
@@ -82,5 +86,21 @@ def test_compare_ipopt_and_acados_2() -> None:
     np.testing.assert_allclose(u_acados, u_ipopt)
 
 
+def test_mpc_with_explicit_runge_kutta() -> None:
+    model = setup_simple_model_2()
+    mpc = setup_simple_mpc(model)
+    mpc.acados_options = {
+        'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+        'nlp_solver_type': 'SQP',
+        'hessian_approx': 'EXACT',
+        'integrator_type': 'ERK',
+        'cost_type': 'EXTERNAL',
+    }
+    set_acados_mpc(mpc)
+    x0 = np.array([[1, 0]])
+    u_acados = mpc.make_step(x0)
+    np.testing.assert_allclose(u_acados, 1)
+
+
 if __name__ == '__main__':
-    test_compare_ipopt_and_acados_2()
+    test_mpc_with_explicit_runge_kutta()
