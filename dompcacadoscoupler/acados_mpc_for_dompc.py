@@ -133,8 +133,10 @@ def init_optimization_variables(acados_solver: AcadosOcpSolver, x_init: cd.DM,
     for stage_index in range(n_horizon + 1):
         acados_solver.set(stage_index, 'x', x_variables[stage_index, -1, :])
         if stage_index != n_horizon:
-            acados_solver.set(stage_index, 'z', z_variables[stage_index, -1, :])
             acados_solver.set(stage_index, 'u', u_variables[stage_index, :])
+            if z_variables:
+                acados_solver.set(stage_index, 'z', z_variables[stage_index,
+                                                                -1, :])
 
 
 def set_x0(
@@ -179,8 +181,9 @@ def init_variables(mpc: MPC, acados_solver: AcadosOcpSolver) -> None:
     assert n_horizon
     for stage in range(0, n_horizon + 1):
         acados_solver.set(stage, 'x', x_init)
-    for stage in range(0, n_horizon):
-        acados_solver.set(stage, 'z', z_init)
+    if z_init:
+        for stage in range(0, n_horizon):
+            acados_solver.set(stage, 'z', z_init)
     for stage in range(0, n_horizon):
         acados_solver.set(stage, 'u', u_init)
 
@@ -201,7 +204,7 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.solver_options = determine_solver_options(mpc)
     ocp.cost = determine_objective_function(mpc, acados_model)
     ocp.dims.N = mpc.n_horizon
-    sanity_check_solver_options(ocp.solver_options, ocp.cost)
+    sanity_check_solver_options(ocp)
     # The correct parameter values should be set later via the set function.
     parameter_shape = np.shape(acados_model.p)
     ocp.parameter_values = np.ones(parameter_shape)
@@ -373,12 +376,16 @@ def determine_solver_options(mpc: MPC) -> AcadosOcpOptions:
     return solver_options
 
 
-def sanity_check_solver_options(options: AcadosOcpOptions,
-                                cost: AcadosOcpCost) -> None:
-    external_cost_function = cost.cost_type == 'EXTERNAL' or cost.cost_type_0 == 'EXTERNAL'
-    if external_cost_function and options.hessian_approx != 'EXACT':
+def sanity_check_solver_options(ocp: AcadosOcp) -> None:
+    external_cost_function = ocp.cost.cost_type == 'EXTERNAL' or ocp.cost.cost_type_0 == 'EXTERNAL'
+    if external_cost_function and ocp.solver_options.hessian_approx != 'EXACT':
         raise ValueError(
             'If you want use the external cost function you must use the exact hessian approximation.'
+        )
+    if ocp.solver_options.integrator_type == 'ERK' and (
+            not ocp.model.z.is_empty()):
+        raise ValueError(
+            'You can not use the explicit Runge-Kutta algorithm with algebraic variables.'
         )
 
 
