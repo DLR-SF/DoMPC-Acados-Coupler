@@ -1,15 +1,12 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from warnings import warn
 
 import casadi as cd
 import colorama
-import matplotlib.pyplot as plt
 import numpy as np
 from acados_template import (AcadosModel, AcadosOcp, AcadosOcpConstraints,
-                             AcadosOcpCost, AcadosOcpOptions, AcadosOcpSolver,
-                             AcadosSim, AcadosSimSolver)
+                             AcadosOcpCost, AcadosOcpOptions, AcadosOcpSolver)
 from do_mpc.controller import MPC
-from dynamodel.examples.pt1_model_coupling import create_pt2_model, set_x_init
 from termcolor import colored
 
 from dompcacadoscoupler.model_converter import convert_to_acados_model
@@ -71,11 +68,8 @@ class AcadosDompcOcpSolver:
             Dict[str, Union[np.ndarray, float]]: A dictionary containing the keys x, g, lam_g and lam_x.
         """
         optimization_variable_guess = x0.cat
-        p0 = p['_p']
-        tvp0 = p['_tvp']
-        x_at_step_0 = p['_x0']
-        solve(self.acados_solver, optimization_variable_guess, x_at_step_0, p0,
-              tvp0, self.n_total_collocation_points)
+        solve(self.acados_solver, optimization_variable_guess, p,
+              self.n_total_collocation_points)
         # get solution
         result_dict = extract_result(self.acados_solver,
                                      self.n_total_collocation_points)
@@ -97,10 +91,17 @@ def get_all_statistics(acados_solver: AcadosOcpSolver) -> Dict[str, Any]:
     return solver_stats
 
 
-def solve(acados_solver: AcadosOcpSolver, optimization_variable_guess: cd.DM,
-          x_at_step_0: cd.DM, p: cd.DM, tvp: cd.DM,
-          n_total_collocation_points: int) -> None:
-    set_p(acados_solver, p, tvp)
+def solve(
+    acados_solver: AcadosOcpSolver,
+    optimization_variable_guess: cd.DM,
+    p: Union[Dict[str, Any], Any],
+    n_total_collocation_points: int,
+) -> None:
+    p0 = p['_p']
+    u_previous = p['_u_prev']
+    tvp0 = p['_tvp']
+    x_at_step_0 = p['_x0']
+    set_p(acados_solver, p0, tvp0, u_previous)
     set_x0(acados_solver, x_at_step_0)
     init_optimization_variables(acados_solver, optimization_variable_guess,
                                 n_total_collocation_points)
@@ -149,6 +150,7 @@ def set_p(
     acados_solver: AcadosOcpSolver,
     p: Union[cd.DM, np.ndarray],
     tvp: Union[cd.DM, np.ndarray],
+    u_reference: Union[cd.DM, np.ndarray],
 ) -> None:
     p = np.asarray(p).squeeze()
     # Check if there are any time varying parameters.
@@ -165,7 +167,7 @@ def set_p(
             current_tvp = tvp[stage, :]
         else:
             current_tvp = np.array([])
-        p_total = np.hstack((p, current_tvp))
+        p_total = np.hstack((p, current_tvp, u_reference))
         acados_solver.set(stage, 'p', p_total)
 
 
@@ -201,8 +203,7 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.dims.N = mpc.n_horizon
     sanity_check_solver_options(ocp.solver_options, ocp.cost)
     # The correct parameter values should be set later via the set function.
-    parameter_shape = tuple(
-        np.asarray(mpc.model.p.shape) + np.asarray(mpc.model.tvp.shape))
+    parameter_shape = np.shape(acados_model.p)
     ocp.parameter_values = np.ones(parameter_shape)
     return ocp
 
@@ -251,9 +252,38 @@ def determine_external_costs(mpc: MPC,
     cost = AcadosOcpCost()
     cost.cost_type = 'EXTERNAL'
     cost.cost_type_e = 'EXTERNAL'
-    acados_model.cost_expr_ext_cost = mpc.lterm  # type: ignore
+    # For the rterm (rate of change of the inputs) there are two possibilities. Either you include udot as an additional state
+    # and then include this in the cost function or you define a u_ref value in the cost function.
+    # See: https://discourse.acados.org/t/implementing-rate-constraints-and-rate-costs/197/2
+    # and see the acados paper for the second option.
+    rterm = determine_rterm_by_reference(mpc, acados_model)
+    acados_model.cost_expr_ext_cost = mpc.lterm + rterm  # type: ignore
     acados_model.cost_expr_ext_cost_e = mpc.mterm  # type: ignore
     return cost
+
+
+def determine_rterm_by_reference(
+        mpc: MPC, acados_model: AcadosModel) -> Union[cd.SX, cd.MX, cd.DM]:
+    n_u = mpc.model.n_u
+    attachment = '_ref'
+    u_ref_list = []
+    r_term = cd.DM(0)
+    for u_name, penalty in dict(mpc.rterm_factor).items():
+        if u_name == 'default':
+            continue
+        u = mpc.model.u[u_name]
+        u_ref_name = u_name + attachment
+        if isinstance(u, cd.MX):
+            u_ref = cd.MX.sym(u_ref_name)
+        elif isinstance(u, cd.SX):
+            u_ref = cd.SX.sym(u_ref_name)
+        else:
+            raise ValueError(f'Type {type(u)} is not supported for the rterm.')
+        r_term += penalty * (u - u_ref)**2
+        u_ref_list.append(u_ref)
+
+    acados_model.p = cd.vertcat(acados_model.p, *u_ref_list)
+    return r_term
 
 
 def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
@@ -261,7 +291,6 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
         in acados. Be aware that the cost function in acados is defined 
         quadratic not for each term but for the addition of all terms. 
         See: https://docs.acados.org/python_interface/index.html#acados_template.acados_ocp.AcadosOcpCost
-    
 
     Args:
         mpc (MPC): Do mpc object with set objective function.
@@ -317,7 +346,8 @@ def get_hessian_as_array(term: Union[cd.SX, cd.MX, cd.DM],
                          variables: Union[cd.SX, cd.MX, cd.DM]) -> np.ndarray:
     # The first output of the hessian function is the hessian the second the gradient.
     # Thus, index 0 is used.
-    return np.asarray(cd.DM(cd.hessian(term, variables)[0]))
+    hessian_index = 0
+    return np.asarray(cd.DM(cd.hessian(term, variables)[hessian_index]))
 
 
 def determine_solver_options(mpc: MPC) -> AcadosOcpOptions:
