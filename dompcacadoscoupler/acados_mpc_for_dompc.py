@@ -70,7 +70,7 @@ class AcadosDompcOcpSolver:
         Returns:
             Dict[str, Union[np.ndarray, float]]: A dictionary containing the keys x, g, lam_g and lam_x.
         """
-        optimization_variable_guess = np.asarray(x0.cat)
+        optimization_variable_guess = x0.cat
         p0 = p['_p']
         tvp0 = p['_tvp']
         x_at_step_0 = p['_x0']
@@ -113,12 +113,13 @@ def solve(acados_solver: AcadosOcpSolver, optimization_variable_guess: cd.DM,
         raise Exception(f'acados returned status {status}.')
 
 
-def init_optimization_variables(acados_solver: AcadosOcpSolver, x0: cd.DM,
+def init_optimization_variables(acados_solver: AcadosOcpSolver, x_init: cd.DM,
                                 n_total_collocation_points: int) -> None:
-    n_horizon = acados_solver.acados_ocp.dims.N
-    n_x = acados_solver.acados_ocp.dims.nx
-    n_z = acados_solver.acados_ocp.dims.nz
-    n_u = acados_solver.acados_ocp.dims.nu
+    x0 = np.asarray(x_init)
+    n_horizon: int = acados_solver.acados_ocp.dims.N  # type: ignore
+    n_x: int = acados_solver.acados_ocp.dims.nx  # type: ignore
+    n_z: int = acados_solver.acados_ocp.dims.nz  # type: ignore
+    n_u: int = acados_solver.acados_ocp.dims.nu  # type: ignore
     shape_x = (n_horizon + 1, n_total_collocation_points + 1, n_x)
     shape_z = (n_horizon, n_total_collocation_points, n_z)
     shape_u = (n_horizon, n_u)
@@ -139,15 +140,15 @@ def set_x0(
     acados_solver: AcadosOcpSolver,
     x0: cd.DM,
 ) -> None:
-    x0 = np.asarray(x0)
-    acados_solver.set(0, "lbx", x0)
-    acados_solver.set(0, "ubx", x0)
+    x0_casted = np.asarray(x0)
+    acados_solver.set(0, "lbx", x0_casted)
+    acados_solver.set(0, "ubx", x0_casted)
 
 
 def set_p(
     acados_solver: AcadosOcpSolver,
-    p: cd.DM,
-    tvp: cd.DM,
+    p: Union[cd.DM, np.ndarray],
+    tvp: Union[cd.DM, np.ndarray],
 ) -> None:
     p = np.asarray(p).squeeze()
     # Check if there are any time varying parameters.
@@ -172,11 +173,13 @@ def init_variables(mpc: MPC, acados_solver: AcadosOcpSolver) -> None:
     x_init = np.array(mpc.x0.cat)
     z_init = np.array(mpc.z0.cat)
     u_init = np.array(mpc.u0.cat)
-    for stage in range(0, acados_solver.acados_ocp.dims.N + 1):
+    n_horizon = acados_solver.acados_ocp.dims.N
+    assert n_horizon
+    for stage in range(0, n_horizon + 1):
         acados_solver.set(stage, 'x', x_init)
-    for stage in range(0, acados_solver.acados_ocp.dims.N):
+    for stage in range(0, n_horizon):
         acados_solver.set(stage, 'z', z_init)
-    for stage in range(0, acados_solver.acados_ocp.dims.N):
+    for stage in range(0, n_horizon):
         acados_solver.set(stage, 'u', u_init)
 
 
@@ -198,8 +201,8 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.dims.N = mpc.n_horizon
     sanity_check_solver_options(ocp.solver_options, ocp.cost)
     # The correct parameter values should be set later via the set function.
-    parameter_shape = (np.array(mpc.model.p.shape) +
-                       np.array(mpc.model.tvp.shape))
+    parameter_shape = tuple(
+        np.asarray(mpc.model.p.shape) + np.asarray(mpc.model.tvp.shape))
     ocp.parameter_values = np.ones(parameter_shape)
     return ocp
 
@@ -248,8 +251,8 @@ def determine_external_costs(mpc: MPC,
     cost = AcadosOcpCost()
     cost.cost_type = 'EXTERNAL'
     cost.cost_type_e = 'EXTERNAL'
-    acados_model.cost_expr_ext_cost = mpc.lterm
-    acados_model.cost_expr_ext_cost_e = mpc.mterm
+    acados_model.cost_expr_ext_cost = mpc.lterm  # type: ignore
+    acados_model.cost_expr_ext_cost_e = mpc.mterm  # type: ignore
     return cost
 
 
@@ -283,9 +286,6 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     n_u = mpc.model.n_u
     n_w = n_x + n_z + n_u
     n_w_e = n_x
-    x_zeros = np.zeros((n_x, n_x))
-    z_zeros = np.zeros((n_z, n_z))
-    u_zeros = np.zeros((n_u, n_u))
     Vx = get_hessian_as_array(mpc.lterm, mpc.model.x) / 2
     Vz = get_hessian_as_array(mpc.lterm, mpc.model.z) / 2
     Vu = np.asarray(cd.diag(mpc.rterm_factor.cat))
@@ -366,14 +366,15 @@ def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
             set_upper_bound(constraints, variable_type, upper_bound, index)
     if len(mpc.slack_vars_list) > 1:
         # TODO: Implement soft constraints.
-        warn(colored(f'Soft constraints are not supported yet.', 'yellow'),
+        warn(colored('Soft constraints are not supported yet.', 'yellow'),
              stacklevel=2)
     return constraints
 
 
 def bound_not_set(bound: cd.DM) -> bool:
-    is_not_set = cd.DM.is_empty(bound) or (bound == cd.DM.inf(1, 1) or
-                                           bound == -1 * cd.DM.inf(1, 1))
+    casadi_inf = cd.DM.inf()
+    is_not_set = cd.DM.is_empty(bound) or (bound == casadi_inf or
+                                           bound == -1 * casadi_inf)
     return is_not_set
 
 
@@ -421,9 +422,10 @@ def modify_when_infinity(value: cd.DM) -> cd.DM:
     # Unfortunateley acados can apparently not handle infinity. Thus, the umber has to be converted to a really large number.
     # See: https://discourse.acados.org/t/one-sided-bounds-in-python-interface/69
     inf = 1e15
-    if value == cd.DM.inf(1, 1):
+    casadi_inf = cd.DM.inf()
+    if value == casadi_inf:
         value = cd.DM(inf)
-    elif value == -1 * cd.DM.inf(1, 1):
+    elif value == -1 * casadi_inf:
         value = cd.DM(-inf)
     else:
         pass
@@ -432,10 +434,10 @@ def modify_when_infinity(value: cd.DM) -> cd.DM:
 
 def extract_result(acados_solver: AcadosOcpSolver,
                    n_total_collocation_points: int) -> Dict[str, Any]:
-    n_horizon = acados_solver.acados_ocp.dims.N
-    n_x = acados_solver.acados_ocp.dims.nx
-    n_z = acados_solver.acados_ocp.dims.nz
-    n_u = acados_solver.acados_ocp.dims.nu
+    n_horizon: int = acados_solver.acados_ocp.dims.N  # type: ignore
+    n_x: int = acados_solver.acados_ocp.dims.nx  # type: ignore
+    n_z: int = acados_solver.acados_ocp.dims.nz  # type: ignore
+    n_u: int = acados_solver.acados_ocp.dims.nu  # type: ignore
     # The order must be kept otherwise the ravel function yields not the right order of the elements.
     result_x = np.empty((n_horizon + 1, n_total_collocation_points + 1, n_x))
     # z has one collocation point less due to derivation of the collocation
