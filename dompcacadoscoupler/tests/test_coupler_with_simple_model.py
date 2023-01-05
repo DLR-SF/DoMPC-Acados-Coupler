@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 from do_mpc.controller import MPC
@@ -32,7 +32,7 @@ def setup_simple_model_2() -> Model:
     return model
 
 
-def setup_simple_mpc(model: Model) -> MPC:
+def create_simple_mpc(model: Model) -> MPC:
     mpc = MPC(model)
     setup_mpc = {
         'n_horizon': 2,
@@ -44,6 +44,11 @@ def setup_simple_mpc(model: Model) -> MPC:
     mterm = model.x['x']**2
     lterm = model.x['x']**2
     mpc.set_objective(mterm=mterm, lterm=lterm)
+    return mpc
+
+
+def setup_simple_mpc(model: Model) -> MPC:
+    mpc = create_simple_mpc(model)
     mpc.setup()
     return mpc
 
@@ -102,5 +107,35 @@ def test_mpc_with_explicit_runge_kutta() -> None:
     np.testing.assert_allclose(u_acados, 1)
 
 
+def test_mpc_with_t_step() -> None:
+    t_step = 0.1
+    model = setup_simple_model_2()
+
+    mpc = setup_mpc_with_t_step(model, t_step)
+    x0 = np.array([[1, 0]])
+    u_ipopt = mpc.make_step(x0)
+
+    mpc = setup_mpc_with_t_step(model, t_step)
+    mpc.acados_options = {
+        'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+        'nlp_solver_type': 'SQP',
+        'hessian_approx': 'EXACT',
+        'integrator_type': 'IRK',
+        'cost_type': 'EXTERNAL',
+        'sim_method_num_steps': 3,
+    }
+    set_acados_mpc(mpc)
+    x0 = np.array([[1, 0]])
+    u_acados = mpc.make_step(x0)
+    np.testing.assert_allclose(u_acados, u_ipopt)
+
+
+def setup_mpc_with_t_step(model: Model, t_step: float) -> MPC:
+    mpc = create_simple_mpc(model)
+    mpc.t_step = t_step
+    mpc.setup()
+    return mpc
+
+
 if __name__ == '__main__':
-    test_mpc_with_explicit_runge_kutta()
+    test_mpc_with_t_step()
