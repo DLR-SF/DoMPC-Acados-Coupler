@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from warnings import warn
 
@@ -91,6 +92,15 @@ def get_all_statistics(acados_solver: AcadosOcpSolver) -> Dict[str, Any]:
     return solver_stats
 
 
+class ReturnValues(Enum):
+    ACADOS_SUCCESS = 0
+    ACADOS_FAILURE = 1
+    ACADOS_MAXITER = 2
+    ACADOS_MINSTEP = 3
+    ACADOS_QP_FAILURE = 4
+    ACADOS_READY = 5
+
+
 def solve(
     acados_solver: AcadosOcpSolver,
     optimization_variable_guess: cd.DM,
@@ -111,7 +121,7 @@ def solve(
     if status != 0:
         # NOTE: This link may give a hint for convergence problems.
         # TODO: What does alpha mean and why is it zero in the first iteration?
-        raise Exception(f'acados returned status {status}.')
+        raise Exception(f'acados returned status {ReturnValues(status).name}.')
 
 
 def init_optimization_variables(acados_solver: AcadosOcpSolver, x_init: cd.DM,
@@ -154,6 +164,15 @@ def set_p(
     tvp: Union[cd.DM, np.ndarray],
     u_reference: Union[cd.DM, np.ndarray],
 ) -> None:
+    """Set parameters of the optimization problem in the acados solver.
+
+    Args:
+        acados_solver: AcadosOcpSolver: The acados solver object.
+        p: Union[cd.DM, np.ndarray]: The parameters of the optimization problem.
+        tvp: Union[cd.DM, np.ndarray]: The time-varying parameters of the optimization problem.
+        u_reference: Union[cd.DM, np.ndarray]: The reference control inputs for the optimization problem.
+    """
+    u_reference = np.asarray(u_reference).squeeze()
     p = np.asarray(p).squeeze()
     # Check if there are any time varying parameters.
     time_varying_parameters_exist = not tvp[0].is_empty()
