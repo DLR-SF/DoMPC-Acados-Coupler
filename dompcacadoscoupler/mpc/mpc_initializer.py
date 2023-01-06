@@ -26,7 +26,7 @@ def init_optimization_variables(acados_solver: AcadosOcpSolver, x_init: cd.DM,
         acados_solver.set(stage_index, 'x', x_variables[stage_index, -1, :])
         if stage_index != n_horizon:
             acados_solver.set(stage_index, 'u', u_variables[stage_index, :])
-            if z_variables.size == 0:
+            if z_variables.size != 0:
                 acados_solver.set(stage_index, 'z', z_variables[stage_index,
                                                                 -1, :])
 
@@ -82,7 +82,7 @@ def init_variables(mpc: MPC, acados_solver: AcadosOcpSolver) -> None:
     assert n_horizon
     for stage in range(0, n_horizon + 1):
         acados_solver.set(stage, 'x', x_init)
-    if z_init.size == 0:
+    if z_init.size != 0:
         for stage in range(0, n_horizon):
             acados_solver.set(stage, 'z', z_init)
     for stage in range(0, n_horizon):
