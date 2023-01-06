@@ -45,8 +45,7 @@ def simulate(
     acados_integrator.set('u', np.asarray(u0))
     acados_integrator.set('p', np.asarray(p0))
     # initialize IRK
-    sim = acados_integrator.acados_sim
-    if sim.solver_options.integrator_type == 'IRK':
+    if acados_integrator.acados_sim.solver_options.integrator_type == 'IRK':
         nx = acados_integrator.acados_sim.dims.nx
         acados_integrator.set('xdot', np.zeros((nx,)))
 
@@ -86,7 +85,7 @@ def create_acados_simulator(acados_model: AcadosModel) -> AcadosSim:
 def determine_simulator_options(simulator: Simulator) -> AcadosSimOpts:
     solver_options = AcadosSimOpts()
     if hasattr(simulator, 'solver_options'):
-        dompc_options = simulator.solver_options
+        dompc_options = simulator.solver_options  # type: ignore
     else:
         dompc_options = {}
     solver_options.T = simulator.t_step  # type: ignore
@@ -97,4 +96,6 @@ def determine_simulator_options(simulator: Simulator) -> AcadosSimOpts:
     if not simulator.model.z.is_empty():
         solver_options.integrator_type = dompc_options.get(
             'integrator_type', 'IRK')
+        if solver_options.integrator_type == 'ERK':
+            raise ValueError('Explicit Runge-Kutta methods can not be applied when there are algebraic variables.')
     return solver_options
