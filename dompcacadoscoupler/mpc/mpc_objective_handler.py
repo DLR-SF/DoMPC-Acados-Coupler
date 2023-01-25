@@ -132,16 +132,17 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     n_w = n_x + n_z + n_u
     n_w_e = n_x
     Vx = get_hessian_as_array(mpc.lterm, mpc.model.x) / 2
-    Vz = get_hessian_as_array(mpc.lterm, mpc.model.z) / 2
     Vu = np.asarray(cd.diag(mpc.rterm_factor.cat))
+    Vz = get_hessian_as_array(mpc.lterm, mpc.model.z) / 2
     cost.Vx = np.vstack((Vx, np.zeros((n_z + n_u, n_x))))
-    cost.Vz = np.vstack((np.zeros((n_x, n_z)), Vz, np.zeros((n_u, n_z))))
-    cost.Vu = np.vstack((np.zeros((n_x + n_z, n_u)), Vu))
+    cost.Vu = np.vstack((np.zeros((n_x, n_u)), Vu, np.zeros((n_z, n_u))))
+    cost.Vz = np.vstack((np.zeros((n_x + n_z, n_u)), Vz))
     # Setting all variables to 0 to get the reference.
     # This only works if all terms are quadratic.
     lagrange_term_jacobian = mpc.lterm_fun.jacobian()
     jacobian_values = lagrange_term_jacobian(0, 0, 0, 0, 0, 0)
     y_ref = -jacobian_values / 2
+    # The order of yref is [x,u,z].
     cost.yref = np.asarray(y_ref[:n_w]).T
     # Meyer term.
     cost.Vx_e = get_hessian_as_array(mpc.mterm, mpc.model.x) / 2
@@ -153,8 +154,8 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     # NOTE: In the bicicyle example they use:
     # unscale = N / Tf
     # What is that for?
-    cost.W = np.ones((n_w, n_w))
-    cost.W_e = np.ones((n_w_e, n_w_e))
+    cost.W = np.eye(n_w)
+    cost.W_e = np.eye(n_w_e)
     return cost
 
 
