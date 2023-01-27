@@ -41,7 +41,8 @@ def simulate(
     p0: cd.DM,
 ) -> Dict[str, Union[np.ndarray, float]]:
     acados_integrator.set('x', np.asarray(x0))
-    acados_integrator.set('z', np.asarray(z0))
+    if not z0.is_empty():
+        acados_integrator.set('z', np.asarray(z0))
     acados_integrator.set('u', np.asarray(u0))
     acados_integrator.set('p', np.asarray(p0))
     # initialize IRK
@@ -84,16 +85,16 @@ def create_acados_simulator(acados_model: AcadosModel) -> AcadosSim:
 
 def determine_simulator_options(simulator: Simulator) -> AcadosSimOpts:
     solver_options = AcadosSimOpts()
-    if hasattr(simulator, 'solver_options'):
-        dompc_options = simulator.solver_options  # type: ignore
+    if hasattr(simulator, 'acados_options'):
+        dompc_options = simulator.acados_options  # type: ignore
     else:
         dompc_options = {}
     solver_options.T = simulator.t_step  # type: ignore
-    # # From: https://github.com/acados/acados/issues/893
-    # solver_options.output_z = True
     for option_name, value in dompc_options.items():
         setattr(solver_options, option_name, value)
     if not simulator.model.z.cat.is_empty():
+        # # From: https://github.com/acados/acados/issues/893
+        solver_options.output_z = True
         solver_options.integrator_type = dompc_options.get(
             'integrator_type', 'IRK')
         if solver_options.integrator_type == 'ERK':
