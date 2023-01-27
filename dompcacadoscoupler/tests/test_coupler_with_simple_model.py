@@ -160,9 +160,7 @@ def test_mpc_with_linear_cost_function() -> None:
         'store_full_solution': True,
     }
     mpc.set_param(**setup_mpc)
-    # lterm = (model.x['x'] - 1)**2 + (model.z['z'] - 3)**2
-    # mterm = (model.x['x'] - 1)**2
-    lterm = (model.x['x'] - 1)**2
+    lterm = (model.x['x'] - 1)**2 + (model.z['z'] - 3)**2
     mterm = (model.x['x'] - 1)**2
     mpc.set_objective(lterm=lterm, mterm=mterm)
     mpc.setup()
@@ -177,10 +175,11 @@ def test_mpc_with_linear_cost_function() -> None:
     x0 = np.array([[1]])
     u_acados = mpc.make_step(x0)
     cost_value = mpc.S.acados_solver.get_cost()
-    np.testing.assert_allclose(mpc.S.acados_solver.cost.yref,
+    np.testing.assert_allclose(mpc.S.acados_solver.acados_ocp.cost.yref,
                                np.array([1, 0, 3]))
-    np.testing.assert_allclose(mpc.S.acados_solver.cost.yref_e, 2)
-    # np.testing.assert_allclose(u_acados, u_ipopt)
+    np.testing.assert_allclose(mpc.S.acados_solver.acados_ocp.cost.yref_e, 1)
+    np.testing.assert_allclose(cost_value, 0, atol=1e-8)
+    np.testing.assert_allclose(u_acados, 1)
 
 
 def create_mpc_simple_3(model: Model) -> MPC:
@@ -209,6 +208,9 @@ def create_mpc_simple_3_with_scaling(model: Model) -> MPC:
     mpc.scaling['_x', 'x'] = 10
     mpc.scaling['_u', 'u'] = 10
     mpc.scaling['_z', 'z'] = 10
+    mpc.x0 = 1
+    # mpc.u0 = 1
+    # mpc.z0 = 1
     return mpc
 
 
@@ -216,13 +218,14 @@ def test_mpc_scaling() -> None:
     model = setup_simple_model_3()
     mpc = create_mpc_simple_3_with_scaling(model)
     mpc.setup()
+    mpc.set_initial_guess()
 
     x0 = np.array([[1]])
     u_ipopt = mpc.make_step(x0)
 
     mpc = create_mpc_simple_3_with_scaling(model)
-    mpc = create_mpc_simple_3(model)
     mpc.setup()
+    mpc.set_initial_guess()
     mpc.acados_options = {
         'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
         'nlp_solver_type': 'SQP',
@@ -234,7 +237,9 @@ def test_mpc_scaling() -> None:
     x0 = np.array([[1]])
     u_acados = mpc.make_step(x0)
     np.testing.assert_allclose(u_acados, u_ipopt, rtol=1e-3)
+    np.testing.assert_allclose(mpc.S.acados_solver.get_cost(), 0, atol=1e-6)
 
 
 if __name__ == '__main__':
-    test_mpc_scaling()
+    test_compare_ipopt_and_acados()
+    test_compare_ipopt_and_acados_2()
