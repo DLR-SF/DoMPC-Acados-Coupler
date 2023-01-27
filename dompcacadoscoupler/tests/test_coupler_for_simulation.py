@@ -14,6 +14,13 @@ def test_simulator_conversion() -> None:
     set_x_init(pt2_simulator, pt2_variables)
     pt2_simulator.setup()
     pt2_simulator.set_p_fun(lambda t: pt2_simulator.get_p_template())
+    pt2_simulator.acados_options = {
+        'num_stages': 3,
+        'num_steps': 3,
+        'integrator_type': 'IRK',
+        'newton_iter': 3,
+        'collocation_type': 'GAUSS_RADAU_IIA'
+    }
     set_acados_simulator(pt2_simulator)
 
     nx = pt2_model.x.shape[0]
