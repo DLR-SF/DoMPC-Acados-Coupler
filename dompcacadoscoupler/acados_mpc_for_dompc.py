@@ -74,12 +74,7 @@ class AcadosDompcOcpSolver:
             Dict[str, Union[np.ndarray, float]]: A dictionary containing the keys x, g, lam_g and lam_x.
         """
         optimization_variable_guess = x0.cat
-        # x0 is not scaled as this is done in a extra equality equation in dompc.
-        # However, there is no equality equation in acados.
-        # We simply set the box contraints for the first x to _x0.
-        p['_x0'] /= self.dompc_mpc._x_scaling
-        solve(self.acados_solver, optimization_variable_guess, p,
-              self.n_total_collocation_points)
+        self.solve(optimization_variable_guess, p)
         result_dict = extract_result(self.acados_solver,
                                      self.n_total_collocation_points)
 
@@ -87,6 +82,31 @@ class AcadosDompcOcpSolver:
 
     def stats(self):
         return get_all_statistics(self.acados_solver)
+
+    def solve(
+        self,
+        optimization_variable_guess: cd.DM,
+        p: Union[Dict[str, Any], Any],
+    ) -> None:
+        p0 = p['_p']
+        u_previous = p['_u_prev']
+        tvp0 = p['_tvp']
+        # x0 is not scaled as this is done in a extra equality equation in dompc.
+        # However, there is no equality equation in acados.
+        # We simply set the box contraints for the first x to _x0.
+        x_at_step_0 = p['_x0'] / self.dompc_mpc._x_scaling
+        set_p(self.acados_solver, p0, tvp0, u_previous)
+        set_x0(self.acados_solver, x_at_step_0)
+        # This is important for the first iteration
+        # but may not be needed after the first iteration.
+        init_optimization_variables(self.acados_solver,
+                                    optimization_variable_guess,
+                                    self.n_total_collocation_points)
+
+        status = self.acados_solver.solve()
+        if status != 0:
+            raise RuntimeError(
+                f'acados returned status {ReturnValues(status).name}.')
 
 
 def get_all_statistics(acados_solver: AcadosOcpSolver) -> Dict[str, Any]:
@@ -107,29 +127,6 @@ class ReturnValues(Enum):
     ACADOS_MINSTEP = 3
     ACADOS_QP_FAILURE = 4
     ACADOS_READY = 5
-
-
-def solve(
-    acados_solver: AcadosOcpSolver,
-    optimization_variable_guess: cd.DM,
-    p: Union[Dict[str, Any], Any],
-    n_total_collocation_points: int,
-) -> None:
-    p0 = p['_p']
-    u_previous = p['_u_prev']
-    tvp0 = p['_tvp']
-    x_at_step_0 = p['_x0']
-    set_p(acados_solver, p0, tvp0, u_previous)
-    set_x0(acados_solver, x_at_step_0)
-    # This is important for the first iteration
-    # but may not be needed after the first iteration.
-    init_optimization_variables(acados_solver, optimization_variable_guess,
-                                n_total_collocation_points)
-
-    status = acados_solver.solve()
-    if status != 0:
-        raise RuntimeError(
-            f'acados returned status {ReturnValues(status).name}.')
 
 
 def convert_to_acados_mpc(mpc: MPC) -> AcadosOcpSolver:
