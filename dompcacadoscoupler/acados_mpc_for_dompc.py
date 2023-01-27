@@ -16,6 +16,7 @@ from dompcacadoscoupler.mpc.mpc_objective_handler import \
     determine_objective_function
 from dompcacadoscoupler.mpc.mpc_option_handler import (
     determine_solver_options, sanity_check_solver_options)
+from dompcacadoscoupler.mpc.mpc_scaler import scale_acados_model
 
 
 def set_acados_mpc(mpc: MPC):
@@ -38,6 +39,7 @@ class AcadosDompcOcpSolver:
 
     def __init__(self, mpc: MPC) -> None:
         self.acados_solver = convert_to_acados_mpc(mpc)
+        self.dompc_mpc = mpc
         init_variables(mpc, self.acados_solver)
         # Do not store the lagrange multiplier anymore.
         # They should not be important for dompc.
@@ -61,7 +63,7 @@ class AcadosDompcOcpSolver:
             See: https://discourse.acados.org/t/initialization-of-mpc-steps-warm-start/171
 
         Args:
-            x0 (Any): Not used, just to maintain the interface.
+            x0 (Any): Optimization variables guess.
             lbx (Any): Not used, just to maintain the interface.
             ubx (Any): Not used, just to maintain the interface.
             lbg (Any): Not used, just to maintain the interface.
@@ -72,6 +74,10 @@ class AcadosDompcOcpSolver:
             Dict[str, Union[np.ndarray, float]]: A dictionary containing the keys x, g, lam_g and lam_x.
         """
         optimization_variable_guess = x0.cat
+        # x0 is not scaled as this is done in a extra equality equation in dompc.
+        # However, there is no equality equation in acados.
+        # We simply set the box contraints for the first x to _x0.
+        p['_x0'] /= self.dompc_mpc._x_scaling
         solve(self.acados_solver, optimization_variable_guess, p,
               self.n_total_collocation_points)
         result_dict = extract_result(self.acados_solver,
@@ -129,8 +135,6 @@ def solve(
 def convert_to_acados_mpc(mpc: MPC) -> AcadosOcpSolver:
     acados_model = convert_to_acados_model(mpc.model)
     acados_mpc = create_acados_mpc(mpc, acados_model)
-    # Tf is the prediction horizon.
-    acados_mpc.solver_options.tf = mpc.t_step * mpc.n_horizon  # type: ignore
     acados_solver = AcadosOcpSolver(acados_mpc)
     return acados_solver
 
@@ -142,6 +146,7 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.solver_options = determine_solver_options(mpc)
     ocp.cost = determine_objective_function(mpc, acados_model)
     ocp.dims.N = mpc.n_horizon
+    scale_acados_model(mpc, ocp.model)
     sanity_check_solver_options(ocp)
     # The correct parameter values should be set later via the set function.
     parameter_shape = np.shape(acados_model.p)
