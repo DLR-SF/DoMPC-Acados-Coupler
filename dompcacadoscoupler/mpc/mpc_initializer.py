@@ -67,7 +67,12 @@ def set_p(
             current_tvp = tvp[stage, :]
         else:
             current_tvp = np.array([])
-        p_total = np.hstack((p, current_tvp, u_reference))
+        p_from_dompc = np.hstack((p, current_tvp))
+        if len(p_from_dompc) == acados_solver.acados_ocp.dims.np:
+            p_total = p_from_dompc
+        else:
+            # The rterm was set and thus some extra u_ref parameters were added.
+            p_total = np.hstack((p_from_dompc, u_reference))
         acados_solver.set(stage, 'p', p_total)
 
 
