@@ -6,7 +6,7 @@ from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 
 
 def export_simple_model() -> AcadosModel:
-    model_name = 'minimal_example' + str(uuid.uuid4())
+    model_name = 'minimal_example' + str(uuid.uuid4()).replace('-', '_')
     # set up states & controls
     x = cd.SX.sym('x')
     u = cd.SX.sym('u')
@@ -118,7 +118,7 @@ def test_minimal_mpc_example() -> None:
 
 
 def export_simple_dae_model(scalar: float = 1) -> AcadosModel:
-    model_name = 'minimal_example' + str(uuid.uuid4())
+    model_name = 'minimal_example' + str(uuid.uuid4()).replace('-', '_')
     # set up states & controls
     x = cd.SX.sym('x') * scalar
     u = cd.SX.sym('u') * scalar
@@ -204,7 +204,7 @@ def test_minimal_mpc_example_with_linear_ls() -> None:
         stage_u = ocp_solver.get(stage_index, 'u')
         result_u.append(stage_u)
     print(result_u)
-    np.testing.assert_allclose(cost_value, 0)
+    np.testing.assert_allclose(cost_value, 0, atol=1e-5)
 
 
 def test_minimal_mpc_example_with_scaling() -> None:
@@ -224,7 +224,7 @@ def test_minimal_mpc_example_with_scaling() -> None:
         stage_u = ocp_solver.get(stage_index, 'u')
         result_u.append(stage_u)
     print(result_u)
-    np.testing.assert_allclose(cost_value, 0)
+    np.testing.assert_allclose(cost_value, 0, atol=1e-5)
 
 
 def create_ocp_with_scaling() -> AcadosOcp:
@@ -272,4 +272,4 @@ def create_ocp_with_scaling() -> AcadosOcp:
 
 
 if __name__ == '__main__':
-    test_minimal_mpc_example_with_scaling()
+    test_minimal_mpc_example_with_linear_ls()

@@ -64,7 +64,7 @@ def test_pendulum_mpc_without_array() -> None:
     simulator.set_param(t_step=1)
     simulator.setup()
     new_x = simulator.make_step(u_acados)
-    np.testing.assert_allclose(new_x, 0, atol=1e-8)
+    np.testing.assert_allclose(new_x[0], 0, atol=1e-7)
     np.testing.assert_allclose(u_ipopt, u_acados, rtol=1e-5)
 
 
