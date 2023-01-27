@@ -58,9 +58,6 @@ def set_p(
     p = np.asarray(p).squeeze()
     # Check if there are any time varying parameters.
     time_varying_parameters_exist = not tvp[0].is_empty()
-    if p.size == 0 and not time_varying_parameters_exist:
-        # No parameters in the model.
-        return
     if time_varying_parameters_exist:
         tvp = np.asarray(tvp).squeeze()
     assert acados_solver.acados_ocp.dims.N
