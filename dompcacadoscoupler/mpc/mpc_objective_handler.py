@@ -5,6 +5,8 @@ import numpy as np
 from acados_template import AcadosModel, AcadosOcpCost
 from do_mpc.controller import MPC
 
+from dompcacadoscoupler.mpc.mpc_scaler import scale_objective_function
+
 
 def determine_objective_function(mpc: MPC,
                                  acados_model: Optional[AcadosModel] = None
@@ -32,7 +34,8 @@ def determine_objective_function(mpc: MPC,
         cost_type = mpc.acados_options.get('cost_type', 'EXTERNAL')
     else:
         cost_type = 'EXTERNAL'
-
+    # This scales the mterm and the lterm.
+    scale_objective_function(mpc)
     if cost_type == 'EXTERNAL':
         cost = determine_external_costs(mpc, acados_model)
     elif cost_type == 'LINEAR_LS':
@@ -64,6 +67,7 @@ def determine_external_costs(mpc: MPC,
     # and then include this in the cost function or you define a u_ref value in the cost function.
     # See: https://discourse.acados.org/t/implementing-rate-constraints-and-rate-costs/197/2
     # and see the acados paper for the second option.
+    # TODO: Scale rterm
     rterm = determine_rterm_by_reference(mpc, acados_model)
     acados_model.cost_expr_ext_cost = mpc.lterm + rterm  # type: ignore
     acados_model.cost_expr_ext_cost_e = mpc.mterm  # type: ignore
@@ -143,13 +147,13 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     jacobian_values = lagrange_term_jacobian(0, 0, 0, 0, 0, 0)
     y_ref = -jacobian_values / 2
     # The order of yref is [x,u,z].
-    cost.yref = np.asarray(y_ref[:n_w]).T
+    cost.yref = np.asarray(y_ref[:n_w]).ravel()
     # Meyer term.
     cost.Vx_e = get_hessian_as_array(mpc.mterm, mpc.model.x) / 2
     meyer_term_jacobian = mpc.mterm_fun.jacobian()
     meyer_values = meyer_term_jacobian(0, 0, 0, 0)
     terminal_y_ref = -meyer_values / 2
-    cost.yref_e = np.asarray(terminal_y_ref[:n_w_e]).T
+    cost.yref_e = np.asarray(terminal_y_ref[:n_w_e]).ravel()
     #TODO: This is not correct yet.
     # NOTE: In the bicicyle example they use:
     # unscale = N / Tf
