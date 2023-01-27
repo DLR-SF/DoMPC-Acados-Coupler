@@ -46,7 +46,7 @@ def setup_simple_simulator() -> Simulator:
 
 def test_simulator() -> None:
     simulator = setup_simple_simulator()
-    simulator.solver_options = {'integrator_type': 'IRK'}  # type: ignore
+    simulator.acados_options = {'integrator_type': 'IRK'}  # type: ignore
     set_acados_simulator(simulator)
     x_result = []
     u0 = np.array([[0]])
