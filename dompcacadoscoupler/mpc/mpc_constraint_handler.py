@@ -13,16 +13,25 @@ colorama.init()
 
 def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
     constraints = AcadosOcpConstraints()
-    x_init = np.array(mpc.x0.cat)
-    constraints.x0 = x_init
+    x_init = np.array(mpc.x0.cat / mpc._x_scaling)
+    constraints.x0 = x_init.ravel()
     for variable_type in ['_x', '_z', '_u']:
-        for index, variable_name in enumerate(mpc.model[variable_type].keys()):
+        valid_keys = mpc.model[variable_type].keys()
+        if 'default' in valid_keys:
+            valid_keys.remove('default')
+        for index, variable_name in enumerate(valid_keys):
             lower_bound = mpc.bounds['lower', variable_type, variable_name]
             upper_bound = mpc.bounds['upper', variable_type, variable_name]
+            # Scale the bounds accordingly.
+            scalar = mpc.scaling[variable_type, variable_name]
+            scaled_lower_bound = lower_bound / scalar
+            scaled_upper_bound = upper_bound / scalar
             if bound_not_set(lower_bound) and bound_not_set(upper_bound):
                 continue
-            set_lower_bound(constraints, variable_type, lower_bound, index)
-            set_upper_bound(constraints, variable_type, upper_bound, index)
+            set_lower_bound(constraints, variable_type, scaled_lower_bound,
+                            index)
+            set_upper_bound(constraints, variable_type, scaled_upper_bound,
+                            index)
     if len(mpc.slack_vars_list) > 1:
         # TODO: Implement soft constraints.
         warn(colored('Soft constraints are not supported yet.', 'yellow'),
