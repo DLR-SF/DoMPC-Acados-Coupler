@@ -9,7 +9,7 @@ from dynaovr.simulation.dompc_simulation import create_do_mpc_simulator
 from dompcacadoscoupler.acados_simulator_for_dompc import set_acados_simulator
 
 
-def test_dynaovr_with_acados_simulator() -> Tuple[ReceiverVariables, Data]:
+def run_dynaovr_with_acados_simulator() -> Tuple[ReceiverVariables, Data]:
     variables = ReceiverVariables()
     variables.p.comb_discretization = 0.999
     simulator = create_do_mpc_simulator(variables)
@@ -49,4 +49,4 @@ def run_dynaovr_with_acados_simulator(
 
 
 if __name__ == '__main__':
-    test_dynaovr_with_acados_simulator()
+    run_dynaovr_with_acados_simulator()
