@@ -67,7 +67,6 @@ def determine_external_costs(mpc: MPC,
     # and then include this in the cost function or you define a u_ref value in the cost function.
     # See: https://discourse.acados.org/t/implementing-rate-constraints-and-rate-costs/197/2
     # and see the acados paper for the second option.
-    # TODO: Scale rterm
     rterm = determine_rterm_by_reference(mpc, acados_model)
     acados_model.cost_expr_ext_cost = mpc.lterm + rterm  # type: ignore
     acados_model.cost_expr_ext_cost_e = mpc.mterm  # type: ignore
@@ -99,7 +98,9 @@ def determine_rterm_by_reference(
             u_ref = cd.SX.sym(u_ref_name)
         else:
             raise ValueError(f'Type {type(u)} is not supported for the rterm.')
-        r_term += penalty * (u - u_ref)**2
+        uncsaled_u = u * mpc.scaling['_u', u_name]
+        delta_u = uncsaled_u - u_ref
+        r_term += penalty * (delta_u)**2
         u_ref_list.append(u_ref)
 
     acados_model.p = cd.vertcat(acados_model.p, *u_ref_list)
