@@ -24,11 +24,11 @@ def create_pendulum_model(with_array: bool = True) -> Model:
     phi_m_2_set = model.set_variable('_u', 'phi_m_2_set')
     phi_1_m = model.set_variable('_x', 'phi_1_m', shape=(1, 1))
     phi_2_m = model.set_variable('_x', 'phi_2_m', shape=(1, 1))
-    Theta_1 = 1e-4
-    Theta_2 = 1e-4
-    Theta_3 = 1e-4
-    c = np.array([2, 2, 2, 2]) * 1e-3
-    d = np.array([8, 8, 8]) * 1e-5
+    Theta_1 = model.set_variable('parameter', 'Theta_1')
+    Theta_2 = model.set_variable('parameter', 'Theta_2')
+    Theta_3 = model.set_variable('parameter', 'Theta_3')
+    c = np.array([2.697, 2.66, 3.05, 2.86]) * 1e-3
+    d = np.array([6.78, 8.01, 8.82]) * 1e-5
     model.set_rhs('phi_1', dphi[0])
     model.set_rhs('phi_2', dphi[1])
     model.set_rhs('phi_3', dphi[2])
@@ -59,7 +59,7 @@ def create_pendulum_mpc(with_array: bool = True) -> MPC:
     mpc = MPC(model)
     setup_mpc = {
         'n_horizon': 20,
-        't_step': 0.4,
+        't_step': 0.1,
         'n_robust': 0,
         'store_full_solution': True,
         'collocation_deg': 4
@@ -82,16 +82,16 @@ def create_pendulum_mpc(with_array: bool = True) -> MPC:
     mpc.bounds['lower', '_u', 'phi_m_2_set'] = -2 * np.pi
     mpc.bounds['upper', '_u', 'phi_m_1_set'] = 2 * np.pi
     mpc.bounds['upper', '_u', 'phi_m_2_set'] = 2 * np.pi
-    # mpc.scaling['_x', 'phi_1'] = 2
-    # mpc.scaling['_x', 'phi_2'] = 2
-    # mpc.scaling['_x', 'phi_3'] = 2
-    # p_template = mpc.get_p_template(n_combinations=1)
+    mpc.scaling['_x', 'phi_1'] = 2
+    mpc.scaling['_x', 'phi_2'] = 2
+    mpc.scaling['_x', 'phi_3'] = 2
+    p_template = mpc.get_p_template(n_combinations=1)
 
-    # def p_fun(t_now):
-    #     p_template['_p', 0] = [2.25e-4, 2.25e-4, 2.25e-4]
-    #     return p_template
+    def p_fun(t_now):
+        p_template['_p', 0] = [2.25e-4, 2.25e-4, 2.25e-4]
+        return p_template
 
-    # mpc.set_p_fun(p_fun)
+    mpc.set_p_fun(p_fun)
     mpc.setup()
     x0 = np.pi * np.array([1, 1, -1.5, 1, -1, 1, 0, 0]).reshape(-1, 1)
     mpc.x0 = x0
