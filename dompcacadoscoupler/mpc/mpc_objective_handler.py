@@ -141,7 +141,7 @@ def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
     Vz = get_hessian_as_array(mpc.lterm, mpc.model.z) / 2
     cost.Vx = np.vstack((Vx, np.zeros((n_z + n_u, n_x))))
     cost.Vu = np.vstack((np.zeros((n_x, n_u)), Vu, np.zeros((n_z, n_u))))
-    cost.Vz = np.vstack((np.zeros((n_x + n_z, n_u)), Vz))
+    cost.Vz = np.vstack((np.zeros((n_x + n_u, n_z)), Vz))
     # Setting all variables to 0 to get the reference.
     # This only works if all terms are quadratic.
     lagrange_term_jacobian = mpc.lterm_fun.jacobian()
