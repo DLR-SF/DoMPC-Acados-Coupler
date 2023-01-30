@@ -111,11 +111,14 @@ class AcadosDompcOcpSolver:
 
 def get_all_statistics(acados_solver: AcadosOcpSolver) -> Dict[str, Any]:
     solver_stats = {}
-    for key in [
-            'statistics', 'time_tot', 'time_lin', 'time_sim', 'time_sim_ad',
-            'time_sim_la', 'time_qp', 'time_qp_solver_call', 'time_reg',
-            'sqp_iter', 'residuals', 'qp_iter', 'alpha'
-    ]:
+    stats_keys = [
+        'statistics', 'time_tot', 'time_lin', 'time_sim', 'time_sim_ad',
+        'time_sim_la', 'time_qp', 'time_qp_solver_call', 'time_reg', 'sqp_iter',
+        'residuals', 'qp_iter', 'alpha'
+    ]
+    if acados_solver.solver_options['nlp_solver_type'] == 'SQP_RTI':
+        stats_keys.remove('alpha')
+    for key in stats_keys:
         solver_stats[key] = acados_solver.get_stats(key)
     return solver_stats
 
