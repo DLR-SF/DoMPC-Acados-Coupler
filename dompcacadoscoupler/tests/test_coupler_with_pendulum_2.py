@@ -1,3 +1,6 @@
+from time import perf_counter
+from typing import List, Tuple
+
 import casadi as cd
 import numpy as np
 from do_mpc.controller import MPC
@@ -57,12 +60,18 @@ def create_pendulum_model(with_array: bool = True) -> Model:
 def create_pendulum_mpc(with_array: bool = True) -> MPC:
     model = create_pendulum_model(with_array)
     mpc = MPC(model)
+    suppress_ipopt = {
+        'ipopt.print_level': 0,
+        'ipopt.sb': 'yes',
+        'print_time': 0
+    }
     setup_mpc = {
         'n_horizon': 20,
         't_step': 0.1,
         'n_robust': 0,
         'store_full_solution': True,
-        'collocation_deg': 4
+        'collocation_deg': 3,
+        'nlpsol_opts': suppress_ipopt
     }
     mpc.set_param(**setup_mpc)
     phi_1 = model.x['phi_1']
@@ -118,6 +127,23 @@ def create_pendulum_simulator(with_array: bool = True) -> Simulator:
     return simulator
 
 
+def measure_time_for_mpc_execution(
+        mpc: MPC,
+        simulator: Simulator,
+        n_steps: int = 50) -> Tuple[List[float], List[float]]:
+    x0 = np.pi * np.array([1, 1, -1.5, 1, -1, 1, 0, 0]).reshape(-1, 1)
+    u_result = []
+    time_per_step = []
+    for _ in range(n_steps):
+        start = perf_counter()
+        u = mpc.make_step(x0)
+        stop = perf_counter()
+        time_per_step.append(stop - start)
+        u_result.append(u)
+        x0 = simulator.make_step(u)
+    return time_per_step, u_result
+
+
 def test_pendulum_mpc_without_array() -> None:
     x0 = np.pi * np.array([1, 1, -1.5, 1, -1, 1, 0, 0]).reshape(-1, 1)
 
@@ -157,5 +183,41 @@ def extract_solution_and_costs(mpc: MPC):
     return x123_solution, costs
 
 
+def run_pendulum_mpc_without_array() -> None:
+    n_steps = 50
+    n_runs = 5
+
+    time_ipopt_all_runs = []
+    for _ in range(n_runs):
+        simulator_ipopt = create_pendulum_simulator(with_array=False)
+        mpc_ipopt = create_pendulum_mpc(with_array=False)
+        time_ipopt, u_ipopt = measure_time_for_mpc_execution(
+            mpc_ipopt, simulator_ipopt, n_steps)
+        time_ipopt_all_runs.append(time_ipopt)
+
+    time_acados_all_runs = []
+    for _ in range(n_runs):
+        simulator_acados = create_pendulum_simulator(with_array=False)
+        mpc_acados = create_pendulum_mpc(with_array=False)
+        mpc_acados.acados_options = {
+            'qp_solver':
+                'PARTIAL_CONDENSING_HPIPM',  #FULL_CONDENSING_QPOASES,PARTIAL_CONDENSING_HPIPM
+            'nlp_solver_type': 'SQP',
+            'hessian_approx': 'GAUSS_NEWTON',
+            'integrator_type': 'IRK',
+            'cost_type': 'LINEAR_LS',
+        }
+        set_acados_mpc(mpc_acados)
+        time_acados, u_acados = measure_time_for_mpc_execution(
+            mpc_acados, simulator_acados, n_steps)
+        time_acados_all_runs.append(time_acados)
+    mean_time_ipopt = np.mean(time_ipopt_all_runs)
+    mean_time_acados = np.mean(time_acados_all_runs)
+    u_difference = np.abs(np.array(u_ipopt) - np.array(u_acados))
+    print(f'{u_difference.max()=}')
+    mean_time_relation = mean_time_ipopt / mean_time_acados
+    print(f'{mean_time_relation=}')
+
+
 if __name__ == '__main__':
-    test_pendulum_mpc_without_array()
+    run_pendulum_mpc_without_array()
