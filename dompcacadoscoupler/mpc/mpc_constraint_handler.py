@@ -16,14 +16,18 @@ def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
     x_init = np.array(mpc.x0.cat / mpc._x_scaling)
     constraints.x0 = x_init.ravel()
     for variable_type in ['_x', '_z', '_u']:
-        valid_keys = mpc.model[variable_type].keys()
-        if 'default' in valid_keys:
-            valid_keys.remove('default')
-        for index, variable_name in enumerate(valid_keys):
-            lower_bound = mpc.bounds['lower', variable_type, variable_name]
-            upper_bound = mpc.bounds['upper', variable_type, variable_name]
+        valid_labels = mpc.model[variable_type].labels()
+        if 'default' in valid_labels:
+            valid_labels.remove('default')
+        for index, variable_label in enumerate(valid_labels):
+            variable_name, variable_index = variable_label[1:-1].split(',')
+            variable_index = int(variable_index)
+            lower_bound = mpc.bounds['lower', variable_type, variable_name,
+                                     variable_index]
+            upper_bound = mpc.bounds['upper', variable_type, variable_name,
+                                     variable_index]
             # Scale the bounds accordingly.
-            scalar = mpc.scaling[variable_type, variable_name]
+            scalar = mpc.scaling[variable_type, variable_name, variable_index]
             scaled_lower_bound = lower_bound / scalar
             scaled_upper_bound = upper_bound / scalar
             if bound_not_set(lower_bound) and bound_not_set(upper_bound):
