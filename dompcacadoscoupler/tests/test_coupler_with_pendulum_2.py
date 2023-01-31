@@ -65,13 +65,15 @@ def create_pendulum_mpc(with_array: bool = True) -> MPC:
         'ipopt.sb': 'yes',
         'print_time': 0
     }
+    solver_options = {'ipopt.linear_solver': 'MA27'}
+    solver_options.update(suppress_ipopt)
     setup_mpc = {
         'n_horizon': 20,
         't_step': 0.1,
         'n_robust': 0,
         'store_full_solution': True,
         'collocation_deg': 3,
-        'nlpsol_opts': suppress_ipopt
+        'nlpsol_opts': solver_options
     }
     mpc.set_param(**setup_mpc)
     phi_1 = model.x['phi_1']
@@ -127,18 +129,35 @@ def create_pendulum_simulator(with_array: bool = True) -> Simulator:
     return simulator
 
 
+def create_timed_solver(solver):
+    time_per_step = []
+
+    class TimedSolver:
+
+        def __call__(self, **kwargs):
+            start = perf_counter()
+            result = solver(**kwargs)
+            stop = perf_counter()
+            time_per_step.append(stop - start)
+            return result
+
+        def stats(self):
+            return solver.stats()
+
+    return TimedSolver(), time_per_step
+
+
 def measure_time_for_mpc_execution(
         mpc: MPC,
         simulator: Simulator,
-        n_steps: int = 50) -> Tuple[List[float], List[float]]:
+        n_steps: int = 35) -> Tuple[List[float], List[float]]:
     x0 = np.pi * np.array([1, 1, -1.5, 1, -1, 1, 0, 0]).reshape(-1, 1)
     u_result = []
-    time_per_step = []
+
+    timed_solver, time_per_step = create_timed_solver(mpc.S)
+    mpc.S = timed_solver
     for _ in range(n_steps):
-        start = perf_counter()
         u = mpc.make_step(x0)
-        stop = perf_counter()
-        time_per_step.append(stop - start)
         u_result.append(u)
         x0 = simulator.make_step(u)
     return time_per_step, u_result
@@ -184,7 +203,7 @@ def extract_solution_and_costs(mpc: MPC):
 
 
 def run_pendulum_mpc_without_array() -> None:
-    n_steps = 50
+    n_steps = 35
     n_runs = 5
 
     time_ipopt_all_runs = []
@@ -200,10 +219,9 @@ def run_pendulum_mpc_without_array() -> None:
         simulator_acados = create_pendulum_simulator(with_array=False)
         mpc_acados = create_pendulum_mpc(with_array=False)
         mpc_acados.acados_options = {
-            'qp_solver':
-                'PARTIAL_CONDENSING_HPIPM',  #FULL_CONDENSING_QPOASES,PARTIAL_CONDENSING_HPIPM
+            'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
             'nlp_solver_type': 'SQP',
-            'hessian_approx': 'GAUSS_NEWTON',
+            'hessian_approx': 'EXACT',
             'integrator_type': 'IRK',
             'cost_type': 'LINEAR_LS',
         }
