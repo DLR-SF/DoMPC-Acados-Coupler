@@ -3,11 +3,13 @@ from typing import List, Tuple
 
 import casadi as cd
 import numpy as np
+import pytest
 from do_mpc.controller import MPC
 from do_mpc.model import Model
 from do_mpc.simulator import Simulator
 
 from dompcacadoscoupler.acados_mpc_for_dompc import set_acados_mpc
+from dompcacadoscoupler.acados_simulator_for_dompc import set_acados_simulator
 
 
 def create_pendulum_model(with_array: bool = True) -> Model:
@@ -163,14 +165,34 @@ def measure_time_for_mpc_execution(
     return time_per_step, u_result
 
 
-def test_pendulum_mpc_without_array() -> None:
+@pytest.mark.parametrize('with_array', [(True), (False)])
+def test_example_with_simulator(with_array: bool) -> None:
+    u = np.array([[1], [1]])
+    simulator = create_pendulum_simulator(with_array)
+    x_dompc = simulator.make_step(u)
+
+    simulator = create_pendulum_simulator(with_array)
+    simulator.acados_options = {
+        'num_stages': 3,
+        'num_steps': 3,
+        'integrator_type': 'IRK',
+        'newton_iter': 3,
+        'collocation_type': 'GAUSS_RADAU_IIA'
+    }
+    set_acados_simulator(simulator)
+    x_acados = simulator.make_step(u)
+    np.testing.assert_allclose(x_acados, x_dompc, rtol=1e-4)
+
+
+@pytest.mark.parametrize('with_array', [(True), (False)])
+def test_pendulum_mpc(with_array: bool) -> None:
     x0 = np.pi * np.array([1, 1, -1.5, 1, -1, 1, 0, 0]).reshape(-1, 1)
 
-    mpc = create_pendulum_mpc(with_array=False)
+    mpc = create_pendulum_mpc(with_array=with_array)
     u_ipopt = mpc.make_step(x0)
     x1_ipopt_solution, ipopt_cost = extract_solution_and_costs(mpc)
 
-    mpc = create_pendulum_mpc(with_array=False)
+    mpc = create_pendulum_mpc(with_array=with_array)
     mpc.acados_options = {
         'qp_solver':
             'PARTIAL_CONDENSING_HPIPM',  #FULL_CONDENSING_QPOASES,PARTIAL_CONDENSING_HPIPM
@@ -238,4 +260,5 @@ def run_pendulum_mpc_without_array() -> None:
 
 
 if __name__ == '__main__':
-    run_pendulum_mpc_without_array()
+    test_pendulum_mpc(with_array=True)
+    test_example_with_simulator(with_array=True)
