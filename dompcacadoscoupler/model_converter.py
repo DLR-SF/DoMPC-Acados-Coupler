@@ -10,7 +10,7 @@ from dompcacadoscoupler.misc.datetime_helper import get_time_string_now
 def create_x_dot(x: Any) -> cd.SX:
     x_dot_array = []
     for name in x.keys():
-        x_dot = cd.SX.sym(name + '_dot')
+        x_dot = cd.SX.sym(name + '_dot', x[name].shape)
         x_dot_array.append(x_dot)
     return cd.vertcat(*x_dot_array)
 
