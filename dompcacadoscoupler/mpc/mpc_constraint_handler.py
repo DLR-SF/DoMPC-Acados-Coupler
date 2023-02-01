@@ -1,10 +1,10 @@
-from typing import Any
+from typing import Any, Dict, List
 from warnings import warn
 
 import casadi as cd
 import colorama
 import numpy as np
-from acados_template import AcadosOcpConstraints
+from acados_template import AcadosOcp, AcadosOcpConstraints
 from do_mpc.controller import MPC
 from termcolor import colored
 
@@ -15,6 +15,45 @@ def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
     constraints = AcadosOcpConstraints()
     x_init = np.array(mpc.x0.cat / mpc._x_scaling)
     constraints.x0 = x_init.ravel()
+    bounds_for_acados = get_bounds_for_acados(mpc)
+
+    for bound in bounds_for_acados:
+        set_lower_bound(constraints, bound['variable_type'],
+                        bound['scaled_lower_bound'], bound['index'])
+        set_upper_bound(constraints, bound['variable_type'],
+                        bound['scaled_upper_bound'], bound['index'])
+    return constraints
+
+
+def set_soft_constraints(mpc: MPC, ocp: AcadosOcp):
+    ocp.model.con_h_expr = np.array([])
+    ocp.constraints.lh = np.array([])
+    ocp.constraints.uh = np.array([])
+    ocp.constraints.idxsh = np.array([])
+    ocp.cost.zu = np.array([])
+    # Start from 1 to delete default entry.
+    for index, (slack, constraint) in enumerate(
+            zip(mpc.slack_vars_list[1:], mpc.nl_cons_list[1:])):
+        assert slack['slack_name'] == constraint['expr_name'], 'Fatal error'
+        # soft bound on x, using constraint h
+        ocp.model.con_h_expr = cd.vertcat(ocp.model.con_h_expr,
+                                          constraint['expr'])
+
+        ocp.constraints.lh = np.append(ocp.constraints.lh, 0)
+        upper_bound = constraint['ub']
+        ocp.constraints.uh = np.append(ocp.constraints.uh, upper_bound)
+        # indices of slacked constraints within h
+        ocp.constraints.idxsh = np.append(ocp.constraints.idxsh, index)
+
+        ocp.cost.zu = np.append(ocp.cost.zu, slack['penalty'])
+    n_slack_variables = len(ocp.cost.zu)
+    ocp.cost.zl = np.zeros((n_slack_variables,))
+    ocp.cost.Zl = np.zeros((n_slack_variables, n_slack_variables))
+    ocp.cost.Zu = np.zeros((n_slack_variables, n_slack_variables))
+
+
+def get_bounds_for_acados(mpc: MPC) -> List[Dict[str, Any]]:
+    bounds_for_acados = []
     for variable_type in ['_x', '_z', '_u']:
         valid_labels = mpc.model[variable_type].labels()
         if 'default' in valid_labels:
@@ -32,15 +71,14 @@ def determine_acados_constraints(mpc: MPC) -> AcadosOcpConstraints:
             scaled_upper_bound = upper_bound / scalar
             if bound_not_set(lower_bound) and bound_not_set(upper_bound):
                 continue
-            set_lower_bound(constraints, variable_type, scaled_lower_bound,
-                            index)
-            set_upper_bound(constraints, variable_type, scaled_upper_bound,
-                            index)
-    if len(mpc.slack_vars_list) > 1:
-        # TODO: Implement soft constraints.
-        warn(colored('Soft constraints are not supported yet.', 'yellow'),
-             stacklevel=2)
-    return constraints
+            bounds_for_acados.append({
+                'variable_type': variable_type,
+                'variable_name': variable_name,
+                'scaled_lower_bound': scaled_lower_bound,
+                'scaled_upper_bound': scaled_upper_bound,
+                'index': index
+            })
+    return bounds_for_acados
 
 
 def bound_not_set(bound: cd.DM) -> bool:
