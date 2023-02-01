@@ -7,8 +7,8 @@ from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 from do_mpc.controller import MPC
 
 from dompcacadoscoupler.model_converter import convert_to_acados_model
-from dompcacadoscoupler.mpc.mpc_constraint_handler import \
-    determine_acados_constraints
+from dompcacadoscoupler.mpc.mpc_constraint_handler import (
+    determine_acados_constraints, set_soft_constraints)
 from dompcacadoscoupler.mpc.mpc_initializer import (init_optimization_variables,
                                                     init_variables, set_p,
                                                     set_x0)
@@ -145,6 +145,7 @@ def create_acados_mpc(mpc: MPC, acados_model: AcadosModel) -> AcadosOcp:
     ocp.constraints = determine_acados_constraints(mpc)
     ocp.solver_options = determine_solver_options(mpc)
     ocp.cost = determine_objective_function(mpc, acados_model)
+    set_soft_constraints(mpc, ocp)
     ocp.dims.N = mpc.n_horizon
     scale_acados_model(mpc, ocp.model)
     sanity_check_solver_options(ocp)
@@ -160,6 +161,7 @@ def extract_result(acados_solver: AcadosOcpSolver,
     n_x: int = acados_solver.acados_ocp.dims.nx  # type: ignore
     n_z: int = acados_solver.acados_ocp.dims.nz  # type: ignore
     n_u: int = acados_solver.acados_ocp.dims.nu  # type: ignore
+    n_s: int = acados_solver.acados_ocp.dims.ns  # type: ignore
     # The order must be kept otherwise the ravel function yields not the right order of the elements.
     result_x = np.empty((n_horizon + 1, n_total_collocation_points + 1, n_x))
     # z has one collocation point less due to derivation of the collocation
@@ -167,6 +169,7 @@ def extract_result(acados_solver: AcadosOcpSolver,
     # Also there are no z variables for the last stage.
     result_z = np.empty((n_horizon, n_total_collocation_points, n_z))
     result_u = np.empty((n_horizon, n_u))
+    result_su = np.empty((n_horizon, n_s))
     for stage_index in range(n_horizon + 1):
         stage_x = acados_solver.get(stage_index, 'x')
         for index_x, x in enumerate(stage_x):
@@ -177,9 +180,12 @@ def extract_result(acados_solver: AcadosOcpSolver,
                 result_z[stage_index, :, index_z] = z
             stage_u = acados_solver.get(stage_index, 'u')
             result_u[stage_index, :] = stage_u
+            stage_su = acados_solver.get(stage_index, 'su')
+            result_su[stage_index, :] = stage_su
     unraveled_z_result = result_z.ravel()
     result_optimization_variables = np.hstack(
-        (result_x.ravel(), unraveled_z_result, result_u.ravel()))
+        (result_x.ravel(), unraveled_z_result, result_u.ravel(),
+         result_su.ravel()))
     result_dict = {}
     result_dict['x'] = cd.DM(result_optimization_variables)
     result_dict['z'] = cd.DM(unraveled_z_result)

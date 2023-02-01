@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 import numpy as np
+import pytest
 from do_mpc.controller import MPC
 from do_mpc.model import Model
 
@@ -300,5 +301,56 @@ def test_mpc_scaling_with_rterm_2() -> None:
     np.testing.assert_allclose(u_acados, 2, atol=1e-3)
 
 
+@pytest.mark.parametrize(('penalty', 'expected_cost_value'), [(10, 1.25),
+                                                              (2, 1.125)])
+def test_mpc_with_soft_constraint(penalty: int,
+                                  expected_cost_value: float) -> None:
+    x0 = np.array([[1]])
+    model = setup_simple_model_3()
+    mpc = create_mpc_simple_3(model)
+
+    mpc.set_nl_cons('soft_constraint',
+                    model.u['u'],
+                    0.5,
+                    soft_constraint=True,
+                    penalty_term_cons=penalty)
+    mpc.setup()
+    u_ipopt = mpc.make_step(x0)
+
+    model = setup_simple_model_3()
+    mpc = create_mpc_simple_3(model)
+
+    mpc.set_nl_cons('soft_constraint',
+                    model.u['u'],
+                    0.5,
+                    soft_constraint=True,
+                    penalty_term_cons=penalty)
+    mpc.setup()
+    mpc.acados_options = {
+        'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+        'nlp_solver_type': 'SQP',
+        'hessian_approx': 'EXACT',
+        'integrator_type': 'IRK',
+        'cost_type': 'EXTERNAL',
+    }
+    set_acados_mpc(mpc)
+    u_acados = mpc.make_step(x0)
+    cost_value = mpc.S.acados_solver.get_cost()
+    print(cost_value)
+    n_horizon: int = mpc.S.acados_solver.acados_ocp.dims.N  # type: ignore
+    result_x = []
+    for stage_index in range(n_horizon + 1):
+        stage_x = mpc.S.acados_solver.get(stage_index, 'x')
+        result_x.append(stage_x)
+    print(result_x)
+    result_s = []
+    for stage_index in range(n_horizon):
+        stage_s = mpc.S.acados_solver.get(stage_index, 'su')
+        result_s.append(stage_s)
+    print(result_s)
+    np.testing.assert_allclose(cost_value, expected_cost_value, atol=1e-3)
+    np.testing.assert_allclose(u_acados, u_ipopt, atol=1e-3)
+
+
 if __name__ == '__main__':
-    test_mpc_scaling_with_rterm()
+    test_mpc_with_soft_constraint(2, 1)
