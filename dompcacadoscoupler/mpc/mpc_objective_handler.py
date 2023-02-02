@@ -93,14 +93,15 @@ def determine_rterm_by_reference(
         u = mpc.model.u[u_name]
         u_ref_name = u_name + attachment
         if isinstance(u, cd.MX):
-            u_ref = cd.MX.sym(u_ref_name)
+            u_ref = cd.MX.sym(u_ref_name, u.shape)
         elif isinstance(u, cd.SX):
-            u_ref = cd.SX.sym(u_ref_name)
+            u_ref = cd.SX.sym(u_ref_name, u.shape)
         else:
             raise ValueError(f'Type {type(u)} is not supported for the rterm.')
         uncsaled_u = u * mpc.scaling['_u', u_name]
         delta_u = uncsaled_u - u_ref
-        r_term += penalty * (delta_u)**2
+        # Sum1 in case that u is an array.
+        r_term += cd.sum1(penalty * (delta_u)**2)
         u_ref_list.append(u_ref)
 
     acados_model.p = cd.vertcat(acados_model.p, *u_ref_list)
