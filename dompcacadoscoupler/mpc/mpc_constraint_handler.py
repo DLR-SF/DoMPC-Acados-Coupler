@@ -31,21 +31,24 @@ def set_soft_constraints(mpc: MPC, ocp: AcadosOcp):
     ocp.constraints.uh = np.array([])
     ocp.constraints.idxsh = np.array([])
     ocp.cost.zu = np.array([])
+    index = 0
     # Start from 1 to delete default entry.
-    for index, (slack, constraint) in enumerate(
-            zip(mpc.slack_vars_list[1:], mpc.nl_cons_list[1:])):
+    for slack, constraint in zip(mpc.slack_vars_list[1:], mpc.nl_cons_list[1:]):
         assert slack['slack_name'] == constraint['expr_name'], 'Fatal error'
         # soft bound on x, using constraint h
         ocp.model.con_h_expr = cd.vertcat(ocp.model.con_h_expr,
                                           constraint['expr'])
-
-        ocp.constraints.lh = np.append(ocp.constraints.lh, 0)
+        ocp.constraints.lh = np.append(ocp.constraints.lh,
+                                       np.zeros(slack['shape']))
         upper_bound = constraint['ub']
-        ocp.constraints.uh = np.append(ocp.constraints.uh, upper_bound)
+        ocp.constraints.uh = np.append(ocp.constraints.uh,
+                                       np.full(slack['shape'], upper_bound))
         # indices of slacked constraints within h
-        ocp.constraints.idxsh = np.append(ocp.constraints.idxsh, index)
-
-        ocp.cost.zu = np.append(ocp.cost.zu, slack['penalty'])
+        for i in range(np.prod(slack['shape'])):
+            ocp.constraints.idxsh = np.append(ocp.constraints.idxsh, i)
+            index += 1
+        ocp.cost.zu = np.append(ocp.cost.zu,
+                                np.full(slack['shape'], slack['penalty']))
     n_slack_variables = len(ocp.cost.zu)
     ocp.cost.zl = np.zeros((n_slack_variables,))
     ocp.cost.Zl = np.zeros((n_slack_variables, n_slack_variables))
