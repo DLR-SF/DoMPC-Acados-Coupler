@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 import casadi as cd
 from acados_template import AcadosModel
@@ -7,10 +7,15 @@ from do_mpc.model import Model as DompcModel
 from dompcacadoscoupler.misc.datetime_helper import get_time_string_now
 
 
-def create_x_dot(x: Any) -> cd.SX:
+def create_x_dot(x: Any) -> Union[cd.SX, cd.MX]:
     x_dot_array = []
     for name in x.keys():
-        x_dot = cd.SX.sym(name + '_dot', x[name].shape)
+        if isinstance(x[name], cd.SX):
+            x_dot = cd.SX.sym(name + '_dot', x[name].shape)
+        elif isinstance(x[name], cd.MX):
+            x_dot = cd.MX.sym(name + '_dot', x[name].shape)
+        else:
+            raise TypeError(f'Type {type(x[name])} is not supported.')
         x_dot_array.append(x_dot)
     return cd.vertcat(*x_dot_array)
 
