@@ -38,6 +38,8 @@ def determine_objective_function(mpc: MPC,
     scale_objective_function(mpc)
     if cost_type == 'EXTERNAL':
         cost = determine_external_costs(mpc, acados_model)
+    elif cost_type == 'NONLINEAR_LS':
+        cost = determine_nonlinear_costs(mpc, acados_model)
     elif cost_type == 'LINEAR_LS':
         cost = determine_linear_costs(mpc)
     else:
@@ -106,6 +108,21 @@ def determine_rterm_by_reference(
 
     acados_model.p = cd.vertcat(acados_model.p, *u_ref_list)
     return r_term
+
+
+def determine_nonlinear_costs(mpc: MPC,
+                              acados_model: AcadosModel) -> AcadosOcpCost:
+    cost = AcadosOcpCost()
+    cost.cost_type = 'NONLINEAR_LS'
+    cost.cost_type_e = 'NONLINEAR_LS'
+    # rterm = determine_rterm_by_reference(mpc, acados_model)
+    acados_model.cost_y_expr = mpc.lterm  # type: ignore
+    acados_model.cost_y_expr_e = mpc.mterm  # type: ignore
+    cost.W = np.eye(1)
+    cost.W_e = np.eye(1)
+    cost.yref = np.array([0])
+    cost.yref_e = np.array([0])
+    return cost
 
 
 def determine_linear_costs(mpc: MPC) -> AcadosOcpCost:
