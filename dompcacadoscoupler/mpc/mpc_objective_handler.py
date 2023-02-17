@@ -170,4 +170,6 @@ def get_hessian_as_array(term: Union[cd.SX, cd.MX, cd.DM],
     # The first output of the hessian function is the hessian the second the gradient.
     # Thus, index 0 is used.
     hessian_index = 0
-    return np.asarray(cd.DM(cd.hessian(term, variables)[hessian_index]))
+    # Evalf is used to convert to a DM variable. The function to_DM() does not
+    # work for MX.
+    return np.asarray(cd.evalf(cd.hessian(term, variables)[hessian_index]))
