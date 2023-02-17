@@ -67,7 +67,7 @@ def create_pendulum_mpc(with_array: bool = True) -> MPC:
         'ipopt.sb': 'yes',
         'print_time': 0
     }
-    solver_options = {'ipopt.linear_solver': 'MA27'}
+    solver_options = {'ipopt.linear_solver': 'MUMPS'}
     solver_options.update(suppress_ipopt)
     setup_mpc = {
         'n_horizon': 20,
