@@ -1,13 +1,10 @@
 from typing import Any, Dict, Union
 
 import casadi as cd
-import matplotlib.pyplot as plt
 import numpy as np
 from acados_template import (AcadosModel, AcadosSim, AcadosSimOpts,
                              AcadosSimSolver)
-from dynamodel.examples.pt1_model_coupling import (Simulator, create_pt2_model,
-                                                   set_x_init)
-
+from do_mpc.simulator import Simulator
 from dompcacadoscoupler.model_converter import convert_to_acados_model
 
 
