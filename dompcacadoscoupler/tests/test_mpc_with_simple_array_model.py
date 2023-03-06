@@ -85,7 +85,7 @@ def test_mpc_with_linear_cost_function(symvar_type) -> None:
     mpc.acados_options = {
         'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
         'nlp_solver_type': 'SQP',
-        'hessian_approx': 'EXACT',
+        'hessian_approx': 'GAUSS_NEWTON',
         'integrator_type': 'IRK',
         'cost_type': 'LINEAR_LS',
     }
@@ -96,6 +96,37 @@ def test_mpc_with_linear_cost_function(symvar_type) -> None:
     np.testing.assert_allclose(mpc.S.acados_solver.acados_ocp.cost.yref,
                                np.array([1, 1, 0, 0, 3, 3]))
     np.testing.assert_allclose(mpc.S.acados_solver.acados_ocp.cost.yref_e, 1)
+    np.testing.assert_allclose(cost_value, 0.7, atol=1e-8)
+    np.testing.assert_allclose(u_acados, [[1], [1.8]])
+
+
+@pytest.mark.parametrize('symvar_type', ['SX', 'MX'])
+def test_mpc_with_nonlinear_cost_function(symvar_type) -> None:
+    model = setup_simple_model(symvar_type)
+    mpc = MPC(model)
+    # mpc.u0 = np.array([[1], [1.8]])
+    setup_mpc = {
+        'n_horizon': 2,
+        't_step': 1,
+        'n_robust': 0,
+        'store_full_solution': True,
+    }
+    mpc.set_param(**setup_mpc)
+    lterm = cd.sum1((model.x['x'] - 1)**2) + cd.sum1((model.z['z'] - 3)**2)
+    mterm = cd.sum1((model.x['x'] - 1)**2)
+    mpc.set_objective(lterm=lterm, mterm=mterm)
+    mpc.setup()
+    mpc.acados_options = {
+        'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+        'nlp_solver_type': 'SQP',
+        'hessian_approx': 'EXACT',
+        'integrator_type': 'IRK',
+        'cost_type': 'EXTERNAL',
+    }
+    set_acados_mpc(mpc)
+    x0 = np.array([[1], [1]])
+    u_acados = mpc.make_step(x0)
+    cost_value = mpc.S.acados_solver.get_cost()
     np.testing.assert_allclose(cost_value, 0.7, atol=1e-8)
     np.testing.assert_allclose(u_acados, [[1], [1.8]])
 
@@ -241,4 +272,4 @@ def test_mpc_with_soft_constraint(penalty: int,
 
 
 if __name__ == '__main__':
-    test_mpc_with_linear_cost_function('MX')
+    test_mpc_with_nonlinear_cost_function('SX')
