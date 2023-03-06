@@ -183,6 +183,35 @@ def test_mpc_with_linear_cost_function() -> None:
     np.testing.assert_allclose(u_acados, 1)
 
 
+def test_mpc_with_nonlinear_cost_function() -> None:
+    model = setup_simple_model_3()
+    mpc = MPC(model)
+    setup_mpc = {
+        'n_horizon': 2,
+        't_step': 1,
+        'n_robust': 0,
+        'store_full_solution': True,
+    }
+    mpc.set_param(**setup_mpc)
+    lterm = (model.x['x'] - 1)**2 + (model.z['z'] - 3)**2
+    mterm = (model.x['x'] - 1)**2
+    mpc.set_objective(lterm=lterm, mterm=mterm)
+    mpc.setup()
+    mpc.acados_options = {
+        'qp_solver': 'PARTIAL_CONDENSING_HPIPM',
+        'nlp_solver_type': 'SQP',
+        'hessian_approx': 'GAUSS_NEWTON',
+        'integrator_type': 'IRK',
+        'cost_type': 'NONLINEAR_LS',
+    }
+    set_acados_mpc(mpc)
+    x0 = np.array([[1]])
+    u_acados = mpc.make_step(x0)
+    cost_value = mpc.S.acados_solver.get_cost()
+    np.testing.assert_allclose(cost_value, 0, atol=1e-8)
+    np.testing.assert_allclose(u_acados, 1)
+
+
 def create_mpc_simple_3(model: Model) -> MPC:
     mpc = MPC(model)
     setup_mpc = {
@@ -353,4 +382,4 @@ def test_mpc_with_soft_constraint(penalty: int,
 
 
 if __name__ == '__main__':
-    test_mpc_with_soft_constraint(2, 1)
+    test_mpc_with_nonlinear_cost_function()
