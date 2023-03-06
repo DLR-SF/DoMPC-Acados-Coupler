@@ -1,12 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from dynamodel.examples.pt1_model_coupling import (Simulator, create_pt2_model,
-                                                   set_x_init)
 
 from dompcacadoscoupler.acados_simulator_for_dompc import set_acados_simulator
 
 
-def test_simulator_conversion() -> None:
+def run_simulator_conversion() -> None:
+    from dynamodel.examples.pt1_model_coupling import (Simulator,
+                                                       create_pt2_model,
+                                                       set_x_init)
     pt2_variables, pt2_model = create_pt2_model()
     pt2_model.setup()
     pt2_simulator = Simulator(pt2_model)
@@ -58,4 +59,4 @@ def test_simulator_conversion() -> None:
 
 
 if __name__ == '__main__':
-    test_simulator_conversion()
+    run_simulator_conversion()

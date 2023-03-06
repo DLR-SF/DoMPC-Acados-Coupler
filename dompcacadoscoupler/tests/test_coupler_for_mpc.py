@@ -1,12 +1,14 @@
 import numpy as np
 from do_mpc.controller import MPC
-from dynamodel.examples.pt1_model_coupling import create_pt2_model
+from do_mpc.model import Model
 
 from dompcacadoscoupler.acados_mpc_for_dompc import (determine_solver_options,
                                                      set_acados_mpc)
 
 
 def run_mpc_conversion(with_acados: bool = True) -> None:
+    from dynamodel.examples.pt1_model_coupling import create_pt2_model
+
     # TODO: Test with time varying parameter.
     pt2_variables, pt2_model = create_pt2_model()
     # This is just done to have more than one input.
@@ -70,9 +72,13 @@ def run_mpc_conversion(with_acados: bool = True) -> None:
 
 
 def test_determine_solver_options():
-    pt2_variables, pt2_model = create_pt2_model()
-    pt2_model.setup()
-    mpc = MPC(pt2_model)
+    model_type = 'continuous'
+    model = Model(model_type)
+    x = model.set_variable('_x', 'x')
+    u = model.set_variable('_u', 'u')
+    model.set_rhs('x', u)
+    model.setup()
+    mpc = MPC(model)
     setup_mpc = {
         'n_horizon': 2,
         't_step': 1,
